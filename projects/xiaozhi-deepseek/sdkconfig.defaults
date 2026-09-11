@@ -1,0 +1,58 @@
+# ==============================================================================
+# 硬件与系统基础配置 (一般无需修改)
+# ==============================================================================
+# --- 目标芯片 (ESP32-C3 单核 RISC-V, 无 PSRAM) ---
+CONFIG_IDF_TARGET="esp32c3"
+
+# --- Flash (8MB Flash + 3MB App 分区) ---
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# --- 控制台: USB-Serial-JTAG (GPIO18/19 原生 USB, 避开 GPIO21 背光冲突) ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# --- LVGL 图形库 (240x320 16位色彩, 48KB 静态内存池) ---
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_MEM_SIZE_KILOBYTES=48
+
+# --- FreeRTOS ---
+CONFIG_FREERTOS_HZ=1000
+
+# --- 网络与 TLS 内存动态优化 (针对 400KB SRAM 调优) ---
+CONFIG_ESP_TLS_USING_MBEDTLS=y
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+
+# ==============================================================================
+# ★★★ 用户自定义配置区（请直接修改下方各项的值）★★★
+# ==============================================================================
+
+# 1. DeepSeek API Key (在此填入你的 sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+CONFIG_XIAOZHI_DEEPSEEK_API_KEY=""
+
+# 2. DeepSeek 模型选择 (可选: "deepseek-chat" 或 "deepseek-reasoner")
+CONFIG_XIAOZHI_DEEPSEEK_MODEL="deepseek-v4-flash"
+
+# 3. DeepSeek API 地址 (官方默认地址，一般无需修改)
+CONFIG_XIAOZHI_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
+CONFIG_XIAOZHI_MODEL_PROVIDER="deepseek"
+
+# 4. Wi-Fi 网络名称 (★必须是 2.4GHz 频段的 Wi-Fi 或手机热点名称)
+CONFIG_XIAOZHI_WIFI_SSID=""
+
+# 5. Wi-Fi 连接密码 (手机热点或家庭路由器的密码)
+CONFIG_XIAOZHI_WIFI_PASSWORD=""
+
+# 6. 其他运行参数
+CONFIG_XIAOZHI_WIFI_AUTO_CONNECT=y
+CONFIG_XIAOZHI_DEEPSEEK_TEMPERATURE=7
+CONFIG_XIAOZHI_DEEPSEEK_MAX_TOKENS=512
+CONFIG_XIAOZHI_AUDIO_DEFAULT_VOLUME=75
+CONFIG_XIAOZHI_AUDIO_SAMPLE_RATE=16000

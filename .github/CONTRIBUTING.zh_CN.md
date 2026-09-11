@@ -22,20 +22,17 @@
 使用 ESP-IDF 5.5.x（已知开发环境 5.5.3）：
 
 ```bash
-get_idf553                    # 进入仓库的 ESP-IDF 5.5.3 环境
-idf.py set-target esp32c3     # 配置目标芯片（fresh checkout 后/换 target 后运行）
-idf.py build                  # 编译固件，验证依赖
-idf.py flash monitor          # 烧录并打开日志
-idf.py fullclean              # 配置过期时清空生成状态（勿用于清理用户源码改动）
+get_idf553                                     # 进入仓库的 ESP-IDF 5.5.3 环境
+idf.py -C projects/animal-hanzi-story build     # 编译动物汉字故事固件
+idf.py -C projects/hanzi-cards build            # 编译汉字卡片固件
+idf.py -C projects/bsp-demo build               # 编译 BSP 硬件演示固件
+idf.py -C projects/animal-hanzi-story flash monitor  # 烧录并打开日志
 ```
 
-当前基线含一个可脱离硬件运行的纯逻辑测试：
+本仓库包含可脱离硬件运行的纯逻辑主机测试：
 
 ```bash
-cc -std=c11 -Wall -Wextra -Werror -Imain \
-  tests/test_ui_pixel_math.c main/ui_pixel_math.c \
-  -o /tmp/test_ui_pixel_math
-/tmp/test_ui_pixel_math
+./tools/validate.sh --static
 ```
 
 本仓库为本地开发和 CI 提供同一个验证入口：

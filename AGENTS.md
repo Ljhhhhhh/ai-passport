@@ -11,7 +11,8 @@ This file is the only mandatory entry point for AI-assisted work in this reposit
 - Target: ESP32-C3, 8 MB Flash, no PSRAM, ESP-IDF 5.5.3.
 - Preserve existing user changes. Start with `git status --short --branch`; never overwrite or clean unrelated files.
 - Hardware facts follow this priority: product specifications and measured results → `components/bsp/include/bsp_pins.h` → BSP headers and implementation → hardware guide → README/demo code. If a task requires a hardware detail not defined by these sources, ask the user instead of guessing.
-- Reusable board logic belongs in `components/bsp`; pages, state machines, animations, and application tasks belong in `main`.
+- Reusable board logic belongs in `components/bsp`; application projects belong in subdirectories under `projects/` (e.g. `projects/animal-hanzi-story`, `projects/hanzi-cards`, `projects/bsp-demo`). Each project has its own `main/`, `CMakeLists.txt`, `sdkconfig.defaults`, `partitions.csv`, `assets/`, `tests/`, and `README.md`.
+- To create a new project in this collection, use `python3 tools/create_project.py <name>`.
 - LVGL is not thread-safe. Code outside the LVGL task must hold `bsp_lvgl_lock()` while accessing LVGL objects.
 - Button callbacks must stay non-blocking. Audio, storage, networking, and other slow operations belong in worker tasks.
 - A demo must stop every task, timer, callback, and event handler that can access its UI before deleting the screen.
@@ -25,7 +26,7 @@ This file is the only mandatory entry point for AI-assisted work in this reposit
 | --- | --- |
 | Any code change | `docs/development/agent-guide.md`, relevant headers and neighboring implementation |
 | BSP, pins, buses, display, audio, battery | `docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md`, `components/bsp/include/bsp_pins.h` |
-| Demo or menu | `main/demo.h`, `main/main.c`, the nearest `main/demo_*.c` implementation |
+| Demo, menu, or app project | `projects/<project>/main/main.c`, `projects/<project>/README.md`, the nearest `projects/<project>/main/` implementation |
 | Build, test, dependencies, partitions | `docs/development/build-and-test.md`, `sdkconfig.defaults`, `partitions.csv` |
 | CI or release | the matching file in `docs/development/CI-*.md` and `.github/workflows/` |
 | Documentation | `docs/contribution/doc-conventions.md`, `docs/INDEX.md` |

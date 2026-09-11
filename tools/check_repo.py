@@ -18,6 +18,7 @@ SECRET_PATTERNS = {
     "GitHub token": re.compile(r"(?:ghp_|github_pat_)[A-Za-z0-9_]{20,}"),
     "AWS access key": re.compile(r"AKIA[0-9A-Z]{16}"),
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    "DeepSeek API key": re.compile(r"sk-[0-9a-f]{32}"),
 }
 ROOT_MARKDOWN_ALLOWLIST = {
     "AGENTS.md",
@@ -84,6 +85,23 @@ def check_required_files(errors: list[str]) -> None:
             errors.append(
                 f"{path.name}: root Markdown must move to docs/ or .github/"
             )
+
+def check_projects_structure(errors: list[str]) -> None:
+    projects_dir = ROOT / "projects"
+    if not projects_dir.is_dir():
+        errors.append("missing required directory: projects")
+        return
+
+    project_subdirs = [p for p in sorted(projects_dir.iterdir()) if p.is_dir() and not p.name.startswith(".")]
+    if not project_subdirs:
+        errors.append("projects/ must contain at least one project subfolder")
+        return
+
+    for project in project_subdirs:
+        rel = project.relative_to(ROOT)
+        for req in ("CMakeLists.txt", "main/CMakeLists.txt", "README.md", "README.zh_CN.md", "sdkconfig.defaults", "partitions.csv"):
+            if not (project / req).is_file():
+                errors.append(f"{rel}: missing required file {req}")
 
 
 def check_markdown_links(files: list[Path], errors: list[str]) -> None:
@@ -203,6 +221,7 @@ def main() -> int:
     check_issue_forms(errors)
     check_sensitive_content(files, errors)
     check_conflict_markers(files, errors)
+    check_projects_structure(errors)
 
     if errors:
         for error in errors:

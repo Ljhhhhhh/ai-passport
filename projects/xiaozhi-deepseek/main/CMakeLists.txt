@@ -1,0 +1,28 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "xiaozhi_config.c"
+        "xiaozhi_state.c"
+        "xiaozhi_ui.c"
+        "xiaozhi_audio.c"
+        "xiaozhi_wifi.c"
+        "deepseek_client.c"
+        "deepseek_sse_parser.c"
+        "font_xiaozhi_16.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        bsp
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_http_client
+        esp-tls
+        mbedtls
+        json
+        freertos
+        driver
+        lvgl
+        esp_lvgl_port
+)

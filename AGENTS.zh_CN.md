@@ -11,7 +11,8 @@
 - 目标平台：ESP32-C3、8 MB Flash、无 PSRAM、ESP-IDF 5.5.3。
 - 保留用户已有修改。先执行 `git status --short --branch`，不得覆盖或清理无关文件。
 - 硬件事实优先级：产品规格与实测结果 → `components/bsp/include/bsp_pins.h` → BSP 头文件与实现 → 硬件指南 → README/demo。任务所需硬件细节未在这些来源中定义时，直接询问用户，不得猜测。
-- 可复用板级逻辑放入 `components/bsp`；页面、状态机、动画和应用任务放入 `main`。
+- 可复用板级逻辑放入 `components/bsp`；各应用项目独立放置在 `projects/` 子目录下（如 `projects/animal-hanzi-story`、`projects/hanzi-cards`、`projects/bsp-demo`）。每个项目拥有独立的 `main/`、`CMakeLists.txt`、`sdkconfig.defaults`、`partitions.csv`、`assets/`、`tests/` 和 `README.md`。
+- 在本项目集中创建新项目时，使用脚手架命令 `python3 tools/create_project.py <name>`。
 - LVGL 非线程安全。LVGL 任务之外访问 LVGL 对象时必须持有 `bsp_lvgl_lock()`。
 - 按键回调不得阻塞。音频、存储、网络等慢操作必须放入工作任务。
 - demo 删除 screen 前，必须停止所有可能访问其 UI 的任务、定时器、回调和事件处理器。
@@ -25,7 +26,7 @@
 | --- | --- |
 | 任意代码修改 | `docs/development/agent-guide.zh_CN.md`、相关头文件和相邻实现 |
 | BSP、引脚、总线、显示、音频、电池 | `docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.zh_CN.md`、`components/bsp/include/bsp_pins.h` |
-| Demo 或菜单 | `main/demo.h`、`main/main.c`、最近的 `main/demo_*.c` 实现 |
+| Demo、菜单或应用项目 | `projects/<project>/main/main.c`、`projects/<project>/README.zh_CN.md`、最近的 `projects/<project>/main/` 实现 |
 | 构建、测试、依赖、分区 | `docs/development/build-and-test.zh_CN.md`、`sdkconfig.defaults`、`partitions.csv` |
 | CI 或发布 | `docs/development/CI-*.zh_CN.md` 中的对应文件与 `.github/workflows/` |
 | 文档 | `docs/contribution/doc-conventions.zh_CN.md`、`docs/INDEX.zh_CN.md` |

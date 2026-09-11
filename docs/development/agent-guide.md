@@ -31,13 +31,13 @@ If a task requires a board revision, wiring, polarity, register value, or GPIO a
 
 ```text
 requirement
-  └─ main/                         pages, state machines, animation, app tasks, assets
+  └─ projects/<name>/main/         pages, state machines, animation, app tasks, assets
       └─ components/bsp/include/  stable board APIs
           └─ components/bsp/src/  buses, devices, and driver details
               └─ bsp_pins.h       pin and hardware-parameter source of truth
 ```
 
-A new page implements the `enter`, `exit`, and `key` interface in `main/demo_<feature>.c`, is declared in `main/demo.h`, added to `main/CMakeLists.txt`, and registered in `main.c`. Extend menu initialization and failure degradation for new optional peripherals.
+To create a new project in this collection, run `python3 tools/create_project.py <name>`. For menus and multi-page demos (such as `projects/bsp-demo`), a new page implements the `enter`, `exit`, and `key` interface in `demo_<feature>.c`, is declared in `demo.h`, and registered in `main.c`.
 
 Only reusable hardware capabilities belong in the BSP. Document blocking behavior, task context, ownership, failures, and initialization order. Pins and I2C addresses belong only in `bsp_pins.h`.
 

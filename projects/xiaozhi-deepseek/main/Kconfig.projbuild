@@ -1,0 +1,86 @@
+menu "Xiaozhi DeepSeek AI Assistant"
+
+    menu "AI Model Configuration (Built-in DeepSeek)"
+        config XIAOZHI_MODEL_PROVIDER
+            string "Model Provider Name"
+            default "deepseek"
+            help
+                AI Model Provider name (e.g., deepseek, openai, custom).
+
+        config XIAOZHI_DEEPSEEK_API_KEY
+            string "DeepSeek API Key"
+            default ""
+            help
+                Your DeepSeek API Key (e.g. sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx).
+                When configured during development/build, the device directly uses
+                this built-in key without needing any runtime configuration.
+
+        config XIAOZHI_DEEPSEEK_BASE_URL
+            string "DeepSeek API Base URL"
+            default "https://api.deepseek.com/v1"
+            help
+                Base URL for DeepSeek API endpoint.
+
+        config XIAOZHI_DEEPSEEK_MODEL
+            string "DeepSeek Model Name"
+            default "deepseek-chat"
+            help
+                Model identifier (e.g., deepseek-chat, deepseek-reasoner).
+
+        config XIAOZHI_DEEPSEEK_SYSTEM_PROMPT
+            string "System Prompt"
+            default "你是小智，一个运行在 FoloToy AI Passport 随身卡片机上的智能语音伴侣助手。你的回答需要简明、亲切、生动，适合小屏幕显示和语音交流。"
+            help
+                System prompt configured for the AI assistant.
+
+        config XIAOZHI_DEEPSEEK_TEMPERATURE
+            int "Temperature (x10, e.g. 7 for 0.7)"
+            default 7
+            range 0 20
+            help
+                Sampling temperature multiplied by 10 (0 to 20, where 7 = 0.7).
+
+        config XIAOZHI_DEEPSEEK_MAX_TOKENS
+            int "Max Completion Tokens"
+            default 512
+            range 64 2048
+            help
+                Maximum number of tokens to generate in response.
+    endmenu
+
+    menu "Wi-Fi Configuration"
+        config XIAOZHI_WIFI_SSID
+            string "Default Wi-Fi SSID"
+            default ""
+            help
+                Default Wi-Fi SSID for auto-connection on boot.
+
+        config XIAOZHI_WIFI_PASSWORD
+            string "Default Wi-Fi Password"
+            default ""
+            help
+                Default Wi-Fi Password.
+
+        config XIAOZHI_WIFI_AUTO_CONNECT
+            bool "Auto-connect Wi-Fi on boot"
+            default y
+            help
+                Automatically connect to configured Wi-Fi upon startup.
+    endmenu
+
+    menu "Audio and Voice Configuration"
+        config XIAOZHI_AUDIO_DEFAULT_VOLUME
+            int "Default Volume (0-100%)"
+            default 75
+            range 0 100
+            help
+                Default speaker output volume percentage.
+
+        config XIAOZHI_AUDIO_SAMPLE_RATE
+            int "Audio Sample Rate (Hz)"
+            default 16000
+            help
+                Audio sample rate for microphone capture and playback.
+    endmenu
+
+endmenu

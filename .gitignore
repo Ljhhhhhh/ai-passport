@@ -1,6 +1,11 @@
 build/
 sdkconfig
 sdkconfig.old
-managed_components/
+managed_components
 .vscode/
 .idea/
+profile.json
+config.local.json
+*.local.json
+__pycache__/
+*.pyc

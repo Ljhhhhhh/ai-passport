@@ -46,19 +46,16 @@
 ## 3. 应用与 BSP 的边界
 
 ```text
-Natural-language requirement
-  └─ main/                         Pages, state machines, animation, app tasks, assets
-      └─ components/bsp/include/  Stable board-level APIs
-          └─ components/bsp/src/  GPIO, buses, devices, and driver details
-              └─ bsp_pins.h       Single source of truth for pins and hardware parameters
+自然语言需求
+  └─ projects/<name>/main/         页面、状态机、动画、应用任务、资源
+      └─ components/bsp/include/  稳定的板级接口
+          └─ components/bsp/src/  总线、设备与驱动实现细节
+              └─ bsp_pins.h       引脚与硬件参数的唯一权威定义
 ```
 
-新增普通页面时，创建 `main/demo_<feature>.c` 并实现 `enter`、`exit`、`key` 接口，然后同步修改：
+在项目集中新建项目使用 `python3 tools/create_project.py <name>`。对于菜单与多页演示（如 `projects/bsp-demo`），新页面在 `demo_<feature>.c` 中实现 `enter`、`exit` 与 `key` 接口，在 `demo.h` 中声明并在 `main.c` 注册。
 
-- `main/demo.h` 中的声明；
-- `main/CMakeLists.txt` 中的源文件；
-- `main/main.c` 的 `DEMOS[]` 注册；
-- 若有新的可选外设，菜单的初始化状态与失败降级。
+若有新的可选外设，菜单需更新初始化状态与失败降级。
 
 只有多个应用都会使用的硬件能力才进入 `components/bsp`。BSP API 需要说明阻塞性、线程上下文、内存所有权、失败值和初始化顺序；引脚或 I2C 地址只能加入 `bsp_pins.h`。
 

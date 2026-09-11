@@ -5,7 +5,25 @@
 # Changelog
 
 ## Unreleased
-
+- 修复 Codex Passport 缺字和笔画错位：内置 OFL 字体、连续 4bpp 位图及 UTF-8 安全截断。提示音按新的待处理任务事件播放一次，首次同步与重连静默，取消周期提醒。
+- 修复 Codex Passport 未读状态同步：读取当前 `electron-thread-read-state-v1`（保留兼容回退）并将未读子代理映射至主任务，防止已完成但 Codex 尚未已读的任务从设备消息列表中被提前移除。
+- Codex Passport 额度页去掉与账号池重复的 OpenCodex `main` 身份，按别名展示三个实际登录账号。
+- Codex Passport 将项目统计改为消息列表：仅展示未读已完成、待回复及失败任务，每条显示真实标题、当前状态与所属项目；更新未读同步与会话补读，支持空列表与同步异常提示。
+- Codex Passport 根据 Codex 应用实际未读数保持常亮，归零后开始 30 秒自动息屏计时；未读状态未知时保持亮屏。
+- 修复 Codex Passport 项目页导航，接通会话日志汇总、BLE 能力检测、项目页确认回执和设备渲染；新增每组三项目翻页与状态变化唤醒，并恢复误回退到旧目录的多项目验证脚本。
+- 新增 `projects/codex-passport` Codex 伴侣：四页 LVGL 界面（首页今日 Token、里程、13 周金箔热力图、近 30 天方向）及 OK 开关的 GitHub 二维码；NimBLE 分片 CRC16 同步；NVS 持久化；按 `response_id` 去重的本地会话分析；带自动回空闲的实时状态。
+- Codex Passport 主机助手在存在 `~/.opencodex/usage.jsonl` 时优先读取该账本，从而把 OpenCodex 代理用量（含非 Codex 模型）同步到设备。
+- Codex Passport 首页底部改为终身 / 近 7 天 / 连续天数；第二页展示三个 Codex 登录账号的五小时与周额度。
+- Codex Passport 主机助手 `--sync` 会按间隔刷新用量和额度，BLE 断线后自动重连。
+- Codex Passport 首页显示上次 BLE 同步时间（主机本地 `MM-DD HH:MM`）。
+- Codex Passport BLE 同步可作 macOS 登录项（`tools/passport-sync`），也可通过 Raycast 脚本命令启停。
+- Codex Passport 首页不再显示签名；今日用量数字与单位左右对齐。额度页五小时占用百分比和剩余时间落在左侧五小时进度条一列。
+- Codex Passport 无操作 10 秒后熄背光，确认键亮屏且不切换二维码。
+- 新增 `projects/hanzi-cards` 离线 50 张幼儿认字卡片：暖绘本版式、首尾循环翻页、60 秒熄屏且唤醒不误翻、I4 插画、婷婷 IMA ADPCM 朗读，以及卡片状态、编解码与资源主机测试。
+- 升级 `projects/animal-hanzi-story` 为 3 天 MVP 幼儿识字掌机游戏（汉字小世界）：为 UP/DOWN 键引入幼儿直接二选一卡片交互、多阶段认知掌握度追踪（已见/提示认出/自主认出/次日脱离认出）、三日渐进式剧情设计（Day 1 熟字操作，Day 2 引入新字「水」并生成常驻小河，Day 3 白底脱离测试与 60 秒自由魔法沙盒），并通过主机测试覆盖核心状态与存档逻辑。
+- 修复生成的 LVGL 稀疏字体映射，使全部已配置的中文界面字形与 80 px 焦点字形正常显示、不再变成缺字方块；静态验证现会检查生成字形的覆盖范围。
+- 仓库重构为 AI Passport 项目集（Monorepo 多工程架构）：各个独立应用项目收敛到 `projects/` 子目录（`projects/animal-hanzi-story` 与 `projects/bsp-demo`），新增 `tools/create_project.py` 一键脚手架工具，并全面升级多项目编译与验证工具链。
+- 将木鱼 demo 替换为离线双集“动物字乐园”：支持三键识字流程、解锁持久化、内嵌普通话提示、IMA ADPCM 分块播放、像素绘本场景，以及故事、存档和编解码主机测试。
 - 精简仓库根目录：将 GitHub 可识别的社区治理文档迁入 `.github/`，将变更记录迁入 `docs/`，同步全部引用，并在仓库检查中加入根目录文档白名单。
 - 全仓库文档语言规范：所有维护中的 Markdown 默认 `.md` 文件使用英文，简体中文使用配对的 `.zh_CN.md`，双方提供语言切换；静态检查会阻止缺失配对、缺失切换链接或英文默认页混入中文正文。
 - AI 开发流程一期：精简按任务加载的上下文入口，统一本地/CI 验证脚本，新增 PR 自动构建与模板，并提交依赖锁文件以提高构建可复现性。

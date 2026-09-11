@@ -28,20 +28,17 @@ second development; the fork conventions are in
 Use ESP-IDF 5.5.x (known development environment 5.5.3):
 
 ```bash
-get_idf553                    # Enter the repository's ESP-IDF 5.5.3 environment
-idf.py set-target esp32c3     # Configure the target chip (fresh checkout / after target change)
-idf.py build                  # Compile firmware and validate dependencies
-idf.py flash monitor          # Flash and open logs
-idf.py fullclean              # Clear stale build state (never for user source changes)
+get_idf553                                     # Enter the repository's ESP-IDF 5.5.3 environment
+idf.py -C projects/animal-hanzi-story build     # Compile Animal Hanzi Story firmware
+idf.py -C projects/hanzi-cards build            # Compile Hanzi Cards firmware
+idf.py -C projects/bsp-demo build               # Compile BSP Demo firmware
+idf.py -C projects/animal-hanzi-story flash monitor  # Flash and open serial logs
 ```
 
-The current baseline includes a pure-logic test that runs without hardware:
+The repository includes pure-logic tests that run on the host without hardware:
 
 ```bash
-cc -std=c11 -Wall -Wextra -Werror -Imain \
-  tests/test_ui_pixel_math.c main/ui_pixel_math.c \
-  -o /tmp/test_ui_pixel_math
-/tmp/test_ui_pixel_math
+./tools/validate.sh --static
 ```
 
 The repository provides one validation entry point for local development and CI:
