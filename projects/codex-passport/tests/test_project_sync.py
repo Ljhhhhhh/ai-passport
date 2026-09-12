@@ -18,6 +18,14 @@ from assistant import PassportAssistant, MessageAlerts
 
 
 class ProjectSyncTests(unittest.TestCase):
+    def test_subagent_notification_does_not_replace_reply_target_title(self):
+        watcher = TranscriptWatcher()
+        task = {"prompt": "Device voice reply"}
+        watcher._record(task, {"type": "response_item", "payload": {
+            "role": "user", "content": [{"text":
+                '<subagent_notification>\n{"agent_path":"worker","status":"done"}\n</subagent_notification>'}]}})
+        self.assertEqual(task["prompt"], "Device voice reply")
+
     def test_alerts_follow_identity_and_turn_not_count(self):
         a = MessageAlerts()
         def message(tid, status=2, turn="one"):
@@ -233,10 +241,11 @@ int main(int argc, char **argv) {
                 return [dict(id=tid, title=tid, project="p", status=2)], dict(state=3, state_name="DONE"), False
         class Device:
             is_connected = True
+            mtu_size = 247
             events = []
             async def read_gatt_char(self, uuid):
                 return b"\x01P\x01\x00\x01\x01"
-            async def start_notify(self, uuid, callback):
+            async def start_notify(self, uuid, callback, **kwargs):
                 self.callback = callback
             async def write_gatt_char(self, uuid, data, response):
                 if data[:3] == b"PT\x01" and data[4] == data[5] - 1:
@@ -245,6 +254,7 @@ int main(int argc, char **argv) {
                     self.callback(None, create_frames(7, bytes([kind, 0]))[0])
         device = Device()
         service = PassportAssistant.__new__(PassportAssistant)
+        service.profile = {}
         service.watcher = Watcher()
         service.prepare_sync_payloads = lambda: {}
         async def tick(_):
@@ -260,12 +270,18 @@ int main(int argc, char **argv) {
                 return [dict(title="title", project="project", status=1)], dict(state=1, project="project", state_name="RUN"), False
         class Device:
             is_connected = True
+            mtu_size = 247
             sent = []
             unread = []
             async def read_gatt_char(self, uuid):
                 return b"\x01P\x01\x00\x01"
-            async def start_notify(self, uuid, callback):
+            async def start_notify(self, uuid, callback, **kwargs):
                 self.callback = callback
+                discriminator = kwargs["cb"]["notification_discriminator"]
+                assert not discriminator(b"\x01P\x01\x01\x01\x01\x01")
+                # Both ACKs and audio fragments may arrive during a status read.
+                assert discriminator(create_frames(7, b"\x0d\x00")[0])
+                assert discriminator(create_frames(14, bytes(519))[0])
             async def write_gatt_char(self, uuid, data, response):
                 if data[:4] == b"PT\x01\x0a":
                     self.unread.append(int.from_bytes(data[8:12], "little"))
@@ -276,6 +292,7 @@ int main(int argc, char **argv) {
                         self.callback(None, create_frames(7, b"\x09\x00")[0])
                     self.is_connected = False
         service = PassportAssistant.__new__(PassportAssistant)
+        service.profile = {}
         service.watcher = Watcher()
         service.prepare_sync_payloads = lambda: {}
         device = Device()
@@ -283,6 +300,43 @@ int main(int argc, char **argv) {
             asyncio.run(service._session_loop(device, 60))
         self.assertEqual(device.unread, [7])
         self.assertEqual(len(device.sent), 2)
+
+    def test_settings_not_in_periodic_payloads_by_default(self):
+        service = PassportAssistant.__new__(PassportAssistant)
+        service.profile = {}
+        service.collector = type("Collector", (), {
+            "scan": lambda self, use_cache=True: {
+                "stats": {}, "heatmap": {"levels": []}, "footprints": [], "directions": []
+            }
+        })()
+        with patch("assistant.load_codex_account_quotas", return_value={"accounts": []}):
+            payloads = service.prepare_sync_payloads()
+        self.assertNotIn(0x0B, payloads)
+
+    def test_configured_settings_pushed_on_connect(self):
+        class Watcher:
+            def poll(self):
+                return [], dict(state=0, project="", state_name="IDLE"), False
+        class Device:
+            is_connected = True
+            mtu_size = 247
+            sent_types = []
+            async def read_gatt_char(self, uuid):
+                return bytes([1, 0x50, 1, 0, 1, 1, 1])
+            async def start_notify(self, uuid, callback, **kwargs):
+                pass
+            async def write_gatt_char(self, uuid, data, response):
+                if len(data) >= 4 and data[:2] == b"PT":
+                    self.sent_types.append(data[3])
+                self.is_connected = False
+        service = PassportAssistant.__new__(PassportAssistant)
+        service.profile = {"voice_enabled": False, "volume": 0}
+        service.watcher = Watcher()
+        service.prepare_sync_payloads = lambda: {}
+        device = Device()
+        with patch("assistant.unread_count", return_value=0):
+            asyncio.run(service._session_loop(device, 60))
+        self.assertIn(0x0B, device.sent_types)
 
 
 if __name__ == "__main__":

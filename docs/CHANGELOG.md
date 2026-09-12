@@ -5,6 +5,11 @@
 # Changelog
 
 ## Unreleased
+
+- Prevented host sync from overwriting device-saved mute and volume settings during periodic telemetry updates.
+- Fixed a macOS BLE status-read/notification race that could lose voice packets. Restored acknowledged audio blocks and the five-second silence threshold; added recording time, upload progress and explicit receipt guidance.
+- Codex Passport Messages uses UP/DOWN to move between cards and pages, including back to the first card. Voice prompts now name the current step: wait for Speak now, click OK to stop, then click OK to send the reviewed text.
+- Added Codex Passport double-click-to-talk replies with task-bound recording, local transcription, on-device review, explicit send confirmation, delivery receipts, and disconnect/duplicate protection.
 - Fixed the Codex Passport Settings page firmware build by reusing the existing card background color. The fourth page provides saved voice and volume controls.
 - Fixed Codex Passport missing and distorted glyphs with a bundled OFL font, continuous 4bpp packing, and UTF-8-safe field encoding. Message sounds now follow new actionable task events once, with silent initial/reconnect snapshots and no periodic reminders.
 - Fixed Codex Passport unread state tracking by reading `electron-thread-read-state-v1` (with fallback to legacy `unread-thread-ids-by-host-v1`) and mapping unread subagents to parent tasks, preventing completed unread tasks from being prematurely removed from the device message list.

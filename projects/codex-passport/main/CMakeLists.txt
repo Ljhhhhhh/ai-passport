@@ -8,6 +8,7 @@ idf_component_register(
          "passport_alert.c"
          "passport_adpcm.c"
          "passport_clips.c"
+         "passport_voice.c"
          "font_passport_16.c"
     INCLUDE_DIRS "."
     REQUIRES bsp nvs_flash bt

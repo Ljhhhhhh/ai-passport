@@ -4,7 +4,7 @@
 #include "passport_storage.h"
 #include "passport_ui.h"
 #include "passport_alert.h"
-#include "passport_alert.h"
+#include "passport_voice.h"
 #include <string.h>
 #include <stdatomic.h>
 
@@ -34,6 +34,8 @@ uint32_t passport_ble_unread_count(void)
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -44,9 +46,10 @@ uint32_t passport_ble_unread_count(void)
 static const char *TAG = "passport_ble";
 static const char *DEVICE_NAME = "Codex-Passport";
 
-static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static _Atomic uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_tx_val_handle = 0;
-static bool s_connected = false;
+static _Atomic bool s_connected = false;
+static _Atomic uint32_t s_connection_generation;
 static uint8_t s_own_addr_type = BLE_OWN_ADDR_PUBLIC;
 static passport_reassembler_t s_reassembler;
 
@@ -106,6 +109,8 @@ static int passport_gap_event(struct ble_gap_event *event, void *arg)
         break;
 
     case BLE_GAP_EVENT_DISCONNECT:
+        atomic_fetch_add(&s_connection_generation, 1);
+        passport_voice_on_disconnect();
         ESP_LOGI(TAG, "BLE host disconnected, reason: %d", event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_connected = false;
@@ -161,6 +166,26 @@ static int gatt_chr_access_rx(uint16_t conn_handle, uint16_t attr_handle,
         ESP_LOGI(TAG, "Reassembled full message type 0x%02X, len %zu", out_msg_type, out_payload_len);
 
         switch (out_msg_type) {
+        case MSG_TYPE_VOICE_RESULT:
+            if (!passport_voice_receive(out_payload, out_payload_len)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            break;
+        case MSG_TYPE_VOICE_MESSAGES: {
+            if (out_payload_len != sizeof(passport_voice_messages_page_t)) {
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            }
+            passport_voice_messages_page_t snapshot;
+            memcpy(&snapshot, out_payload, sizeof(snapshot));
+            passport_messages_page_t *page = &snapshot.messages;
+            if (page->count > PASSPORT_MESSAGES_PER_PAGE || !page->total_pages ||
+                page->page_index >= page->total_pages) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            for (int i = 0; i < page->count; ++i) {
+                page->items[i].title[63] = 0;
+                page->items[i].project[31] = 0;
+            }
+            if (!passport_ui_update_voice_messages(&snapshot)) return BLE_ATT_ERR_INSUFFICIENT_RES;
+            passport_ble_send_ack(MSG_TYPE_VOICE_MESSAGES, 0);
+            break;
+        }
         case MSG_TYPE_ALERT: {
             if (out_payload_len < sizeof(uint32_t)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
             uint32_t sequence;
@@ -296,7 +321,7 @@ static int gatt_chr_access_tx(uint16_t conn_handle, uint16_t attr_handle,
     (void)arg;
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        uint8_t status[] = {s_connected ? 1 : 0, 0x50, 1, passport_ui_project_page(), 1, 1};
+        uint8_t status[] = {s_connected ? 1 : 0, 0x50, 1, passport_ui_project_page(), 1, 1, 1};
         os_mbuf_append(ctxt->om, status, sizeof(status));
         return 0;
     }
@@ -388,6 +413,7 @@ esp_err_t passport_ble_init(void)
     }
 
     ble_hs_cfg.sync_cb = passport_ble_on_sync;
+    ble_att_set_preferred_mtu(247);
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
@@ -417,6 +443,37 @@ esp_err_t passport_ble_init(void)
 bool passport_ble_is_connected(void)
 {
     return s_connected;
+}
+
+esp_err_t passport_ble_send_message(uint8_t msg_type, const void *payload, size_t length)
+{
+    if (!payload || !length || length > PASSPORT_MAX_MSG_LEN || !s_connected) return ESP_FAIL;
+    const uint16_t connection = s_conn_handle;
+    const uint32_t generation = atomic_load(&s_connection_generation);
+    uint16_t mtu = ble_att_mtu(connection);
+    if (mtu <= 13) return ESP_FAIL;
+    size_t chunk = mtu - 13; // ATT overhead plus Passport header and CRC.
+    if (chunk > PASSPORT_MAX_CHUNK_LEN) chunk = PASSPORT_MAX_CHUNK_LEN;
+    size_t total = (length + chunk - 1) / chunk;
+    uint8_t frame[PASSPORT_MAX_CHUNK_LEN + 10];
+    for (size_t seq = 0, offset = 0; offset < length; ++seq) {
+        size_t size = length - offset;
+        if (size > chunk) size = chunk;
+        size_t frame_len = passport_create_frame(msg_type, seq, total,
+            (const uint8_t *)payload + offset, size, frame, sizeof(frame));
+        int rc = BLE_HS_ENOMEM;
+        for (int retry = 0; retry < 20; ++retry) {
+            if (!s_connected || s_conn_handle != connection ||
+                generation != atomic_load(&s_connection_generation)) return ESP_FAIL;
+            struct os_mbuf *om = ble_hs_mbuf_from_flat(frame, frame_len);
+            if (om) rc = ble_gatts_notify_custom(connection, s_tx_val_handle, om);
+            if (rc == 0) break;
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (rc != 0) return ESP_FAIL;
+        offset += size;
+    }
+    return ESP_OK;
 }
 
 esp_err_t passport_ble_send_ack(uint8_t ack_msg_type, uint8_t status)
@@ -453,6 +510,10 @@ esp_err_t passport_ble_send_ack(uint8_t ack_msg_type, uint8_t status)
 // Host stub
 esp_err_t passport_ble_init(void) { return 0; }
 bool passport_ble_is_connected(void) { return false; }
+esp_err_t passport_ble_send_message(uint8_t type, const void *data, size_t length)
+{
+    (void)type; (void)data; (void)length; return -1;
+}
 esp_err_t passport_ble_send_ack(uint8_t ack_msg_type, uint8_t status)
 {
     (void)ack_msg_type; (void)status;

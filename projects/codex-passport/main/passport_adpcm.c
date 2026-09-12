@@ -62,6 +62,33 @@ int16_t passport_adpcm_decode_nibble(passport_adpcm_state_t *state, uint8_t nibb
     return (int16_t)state->predictor;
 }
 
+uint8_t passport_adpcm_encode_nibble(passport_adpcm_state_t *state, int16_t sample)
+{
+    if (!state) return 0;
+    if (state->step_index < 0) state->step_index = 0;
+    if (state->step_index > 88) state->step_index = 88;
+    state->predictor = clamp_i16(state->predictor);
+    int step = s_step_table[state->step_index];
+    int32_t diff = (int32_t)sample - state->predictor;
+    uint8_t nibble = 0;
+    if (diff < 0) {
+        nibble = 8U;
+        diff = -diff;
+    }
+    if (diff >= step) {
+        nibble |= 4U;
+        diff -= step;
+    }
+    if (diff >= (step >> 1)) {
+        nibble |= 2U;
+        diff -= step >> 1;
+    }
+    if (diff >= (step >> 2)) nibble |= 1U;
+    /* Use exactly the decoder's predictor rounding, clipping and index update. */
+    passport_adpcm_decode_nibble(state, nibble);
+    return nibble;
+}
+
 size_t passport_adpcm_decode_bytes(passport_adpcm_state_t *state, const uint8_t *src, size_t src_len,
                                    size_t nibble_index, int16_t *dst, size_t dst_samples)
 {

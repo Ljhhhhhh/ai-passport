@@ -42,6 +42,8 @@ run_static_checks() {
     host_test passport_protocol codex-passport passport_protocol passport_storage
     host_test passport_idle codex-passport passport_idle
     host_test passport_alert codex-passport passport_alert
+    host_test passport_adpcm codex-passport passport_adpcm
+    host_test passport_voice codex-passport passport_adpcm
     host_test xiaozhi_state xiaozhi-deepseek xiaozhi_state
     host_test deepseek_parser xiaozhi-deepseek deepseek_sse_parser
     for suite in projects/*/tests/test_*.py; do

@@ -14,12 +14,14 @@
 #include "passport_ui.h"
 #include "passport_idle.h"
 #include "passport_alert.h"
+#include "passport_voice.h"
 
 static const char *TAG = "codex-passport";
 static passport_idle_t s_idle;
 typedef struct {
     bsp_btn_t btn;
     bsp_btn_ev_t ev;
+    uint32_t pressed_voice_rid;
 } btn_msg_t;
 
 static QueueHandle_t s_buttons;
@@ -38,8 +40,11 @@ static void apply_idle(passport_idle_act_t act)
 static void on_button_event(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
 {
     (void)user;
-    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_LONG) && s_buttons) {
-        btn_msg_t msg = { .btn = btn, .ev = ev };
+    static uint32_t pressed_voice_rid; /* Button callbacks run in one task. */
+    if (btn == BSP_BTN_OK && ev == BSP_BTN_PRESS) pressed_voice_rid = passport_voice_press();
+    if (btn == BSP_BTN_OK && ev == BSP_BTN_RELEASE) passport_voice_release();
+    if ((ev == BSP_BTN_PRESS || ev == BSP_BTN_CLICK || ev == BSP_BTN_DOUBLE || ev == BSP_BTN_LONG) && s_buttons) {
+        btn_msg_t msg = { .btn = btn, .ev = ev, .pressed_voice_rid = pressed_voice_rid };
         xQueueSend(s_buttons, &msg, 0);
     }
 }
@@ -48,6 +53,8 @@ static void ui_input_task(void *arg)
 {
     (void)arg;
     TickType_t previous = xTaskGetTickCount();
+    bool suppress_gesture = false;
+    bool voice_notice = false;
     while (1) {
         btn_msg_t msg;
         bool pressed = xQueueReceive(s_buttons, &msg, pdMS_TO_TICKS(250)) == pdTRUE;
@@ -55,6 +62,7 @@ static void ui_input_task(void *arg)
         uint32_t dt = (now - previous) * portTICK_PERIOD_MS;
         uint32_t unread = passport_ble_unread_count();
         apply_idle(passport_idle_set_unread(&s_idle, unread));
+        if (passport_voice_busy() || voice_notice) s_idle.idle_ms = 0;
         apply_idle(passport_idle_on_tick(&s_idle, dt));
         previous = now;
         if (passport_ui_take_project_update()) {
@@ -67,14 +75,50 @@ static void ui_input_task(void *arg)
             }
         }
         if (!pressed) continue;
+        if (msg.ev == BSP_BTN_PRESS) {
+            suppress_gesture = suppress_gesture || !s_idle.awake;
+            apply_idle(passport_idle_on_button(&s_idle, msg.btn == BSP_BTN_OK));
+            continue;
+        }
+        if (suppress_gesture) {
+            suppress_gesture = false;
+            continue;
+        }
         passport_idle_act_t act = passport_idle_on_button(&s_idle, msg.btn == BSP_BTN_OK);
         apply_idle(act);
         if (act != PASSPORT_IDLE_PASS) continue;
 
-        if (msg.ev == BSP_BTN_LONG) {
-            if (msg.btn == BSP_BTN_OK) {
-                passport_ui_toggle_qr();
+        if (voice_notice) {
+            if (msg.btn == BSP_BTN_OK && (msg.ev == BSP_BTN_CLICK || msg.ev == BSP_BTN_LONG)) {
+                voice_notice = !passport_ui_voice_hide();
             }
+            continue;
+        }
+
+        if (passport_voice_busy()) {
+            if (msg.ev == BSP_BTN_LONG && msg.btn == BSP_BTN_OK) passport_voice_cancel();
+            else if (msg.ev == BSP_BTN_CLICK && msg.btn == BSP_BTN_OK) {
+                if (passport_voice_get_state() == PASSPORT_VOICE_RECORDING) {
+                    passport_voice_stop();
+                } else {
+                    passport_voice_confirm(msg.pressed_voice_rid);
+                }
+            } else if (msg.ev == BSP_BTN_CLICK) passport_ui_voice_scroll(msg.btn == BSP_BTN_DOWN ? 1 : -1);
+            continue;
+        }
+
+        if (msg.ev == BSP_BTN_DOUBLE && msg.btn == BSP_BTN_OK && passport_ui_is_messages_page()) {
+            uint8_t thread_id[16];
+            char title[64];
+            if (!passport_ui_voice_target(thread_id, title) || !passport_voice_start(thread_id, title)) {
+                voice_notice = passport_ui_voice_show("Voice unavailable",
+                    "Keep the Mac connected. Wait for a highlighted message, then try again.", "OK: close");
+            }
+            continue;
+        }
+
+        if (msg.ev == BSP_BTN_LONG) {
+            if (msg.btn == BSP_BTN_OK && !passport_ui_is_messages_page()) passport_ui_toggle_qr();
         } else if (msg.ev == BSP_BTN_CLICK) {
             if (msg.btn == BSP_BTN_UP) {
                 passport_ui_prev_item();
@@ -83,24 +127,13 @@ static void ui_input_task(void *arg)
             } else if (msg.btn == BSP_BTN_OK) {
                 if (passport_ui_is_settings_page()) {
                     passport_ui_settings_toggle();
+                } else if (passport_ui_is_messages_page()) {
+                    /* Keep OK free for double-click talk; UP/DOWN already move cards. */
                 } else {
                     passport_ui_toggle_qr();
                 }
             }
         }
-    }
-}
-
-static void alert_task(void *arg)
-{
-    (void)arg;
-    while (1) {
-        uint8_t alert_type = 0;
-        if (passport_ble_take_alert_type(&alert_type)) {
-            ESP_LOGI(TAG, "Playing message alert type: %u", (unsigned)alert_type);
-            passport_alert_play((passport_alert_type_t)alert_type);
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -146,12 +179,12 @@ void app_main(void)
 
     ESP_ERROR_CHECK(passport_storage_init());
     ESP_ERROR_CHECK(passport_ui_init());
+    ESP_ERROR_CHECK(passport_voice_init());
     s_buttons = xQueueCreate(8, sizeof(btn_msg_t));
     configASSERT(s_buttons);
     configASSERT(xTaskCreate(ui_input_task, "passport_input", 3072, NULL, 4, NULL) == pdPASS);
     ESP_ERROR_CHECK(bsp_button_init(on_button_event, NULL));
     ESP_ERROR_CHECK(passport_ble_init());
-    configASSERT(xTaskCreate(alert_task, "passport_audio", 4096, NULL, 3, NULL) == pdPASS);
 
     xTaskCreate(battery_task, "battery_task", 3072, has_batt ? (void *)1 : NULL, 4, NULL);
 

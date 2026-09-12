@@ -91,7 +91,7 @@ bool passport_reassembler_feed(passport_reassembler_t *r,
 
     uint16_t payload_len = ((uint16_t)hdr->payload_len >> 8) | ((uint16_t)(hdr->payload_len & 0xFF) << 8);
     size_t expected_total_len = sizeof(passport_frame_header_t) + payload_len + 2;
-    if (frame_len != expected_total_len) {
+    if (frame_len != expected_total_len || payload_len > PASSPORT_MAX_CHUNK_LEN) {
         return false;
     }
 
@@ -121,7 +121,8 @@ bool passport_reassembler_feed(passport_reassembler_t *r,
         r->assembled_len = 0;
     } else {
         // Subsequent frame must match
-        if (!r->in_progress || r->active_msg_type != msg_type || seq != r->expected_seq) {
+        if (!r->in_progress || r->active_msg_type != msg_type || seq != r->expected_seq ||
+            total_seq != r->total_seq) {
             passport_reassembler_reset(r);
             return false;
         }

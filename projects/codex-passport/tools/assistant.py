@@ -23,6 +23,8 @@ from codex_task_state import TranscriptWatcher
 from codex_unread import unread_count, UNKNOWN_UNREAD
 from passport_protocol import encode_text, create_frames, crc16_ccitt, pack_projects_page, MSG_TYPE_PROJECTS, MSG_TYPE_ALERT
 from passport_protocol import serialize_settings
+from passport_protocol import (FrameReceiver, pack_voice_messages, MSG_TYPE_VOICE_MESSAGES,
+                               MSG_TYPE_VOICE, MSG_TYPE_VOICE_RESULT)
 
 from codex_collector import (
     STATE_IDLE,
@@ -276,10 +278,6 @@ class PassportAssistant:
             MSG_TYPE_FOOTPRINTS: serialize_footprints(summary["footprints"]),
             MSG_TYPE_DIRECTIONS: serialize_directions(summary["directions"]),
             MSG_TYPE_QUOTA: serialize_quota(load_codex_account_quotas()),
-            MSG_TYPE_SETTINGS: serialize_settings(
-                self.profile.get("voice_enabled", True) if isinstance(self.profile.get("voice_enabled"), bool) else True,
-                int(self.profile.get("volume", 80))
-            ),
         }
 
     async def _push_payloads(self, client: Any, include_profile: bool) -> None:
@@ -310,32 +308,90 @@ class PassportAssistant:
             print("[!] Firmware lacks unread screen control; update firmware")
         if not projects_supported:
             print("[!] Firmware lacks Projects support: flash build/codex-passport-full.bin")
-        ack_queue = asyncio.Queue()
+        write_lock = asyncio.Lock()
+        acknowledgements = {}
+        voice_queue = asyncio.Queue(maxsize=256)
+        receiver = FrameReceiver()
+
+        async def send_payload(kind, payload, acknowledge=False):
+            async with write_lock:
+                future = asyncio.get_running_loop().create_future() if acknowledge else None
+                if future is not None:
+                    acknowledgements[kind] = future
+                try:
+                    chunk_size = min(240, max(1, client.mtu_size - 13))
+                    for frame in create_frames(kind, payload, chunk_size):
+                        await client.write_gatt_char(PASSPORT_CHR_RX_UUID, frame, response=True)
+                    if future is not None:
+                        status_code = await asyncio.wait_for(future, timeout=3)
+                        if status_code != 0:
+                            raise RuntimeError(f"Device rejected message 0x{kind:02x}")
+                finally:
+                    if future is not None:
+                        acknowledgements.pop(kind, None)
+
         def on_notify(_sender, data):
             data = bytes(data)
             if (len(data) == 12 and data[:4] == b"PT\x01\x07" and
                     crc16_ccitt(data[:-2]) == int.from_bytes(data[-2:], "big")):
-                ack_queue.put_nowait(data[8:10])
-        await client.start_notify(PASSPORT_CHR_TX_UUID, on_notify)
+                future = acknowledgements.get(data[8])
+                if future is not None and not future.done():
+                    future.set_result(data[9])
+            elif voice_enabled and len(data) >= 4 and data[3] == MSG_TYPE_VOICE:
+                try:
+                    message = receiver.feed(data)
+                    if message is not None:
+                        voice_queue.put_nowait(message[1])
+                except (ValueError, asyncio.QueueFull):
+                    print("[!] Voice packet rejected; awaiting retransmission")
+
+        # Speech can execute task instructions: enable only for an explicitly bound device.
+        bound_device = str(self.profile.get("voice_device", ""))
+        voice_enabled = (len(caps) >= 7 and caps[6] == 1 and bound_device and
+                         bound_device.lower() == client.address.lower())
+        voice = voice_worker = None
+        if voice_enabled:
+            from passport_voice import VoiceHost
+            from codex_bridge import deliver
+            async def send_result(payload):
+                await send_payload(MSG_TYPE_VOICE_RESULT, payload)
+            voice = VoiceHost(send_result, deliver,
+                              model=self.profile.get("whisper_model"),
+                              whisper=self.profile.get("whisper_path"))
+            async def process_voice():
+                while True:
+                    payload = await voice_queue.get()
+                    await voice.handle(payload)
+            voice_worker = asyncio.create_task(process_voice())
+            print(f"[+] Voice replies enabled; ATT MTU={client.mtu_size}")
+        elif len(caps) >= 7 and caps[6] == 1:
+            print("[!] Voice replies disabled: set voice_device to this Passport address")
+        # CoreBluetooth shares one callback for reads and notifications on TX.
+        # Framed notifications must not consume the pending page-status read.
+        await client.start_notify(PASSPORT_CHR_TX_UUID, on_notify,
+                                  cb={"notification_discriminator": lambda data: data.startswith(b"PT")})
         alerts = MessageAlerts()
         alert_sequence = 0
         alerts_supported = len(caps) >= 6 and caps[5] == 1
+        if "voice_enabled" in self.profile or "volume" in self.profile:
+            settings_raw = serialize_settings(
+                self.profile.get("voice_enabled", True) if isinstance(self.profile.get("voice_enabled"), bool) else True,
+                int(self.profile.get("volume", 80))
+            )
+            await send_payload(MSG_TYPE_SETTINGS, settings_raw)
+            print("[+] Configured alert settings pushed to device.")
         last_projects = None
         last_unread = None
         analytics = asyncio.create_task(asyncio.to_thread(self.prepare_sync_payloads))
         last_full = time.monotonic()
         try:
             while client.is_connected:
+                if voice_worker is not None and voice_worker.done():
+                    voice_worker.result()
                 if unread_supported:
                     count = await asyncio.to_thread(unread_count)
                     if count != last_unread:
-                        while not ack_queue.empty():
-                            ack_queue.get_nowait()
-                        for frame in create_frames(MSG_TYPE_UNREAD, struct.pack("<I", count)):
-                            await client.write_gatt_char(PASSPORT_CHR_RX_UUID, frame, response=True)
-                        ack = await asyncio.wait_for(ack_queue.get(), timeout=3)
-                        if ack != bytes([MSG_TYPE_UNREAD, 0]):
-                            raise RuntimeError("Unread count rejected by device")
+                        await send_payload(MSG_TYPE_UNREAD, struct.pack("<I", count), True)
                         last_unread = count
                         print(f"[+] Unread ACK: {count if count != UNKNOWN_UNREAD else 'unknown; screen stays on'}")
                 poll_res = await asyncio.to_thread(self.watcher.poll)
@@ -348,16 +404,16 @@ class PassportAssistant:
                     caps = bytes(await client.read_gatt_char(PASSPORT_CHR_TX_UUID))
                     page_count = max(1, (len(items) + 2) // 3)
                     page = min(caps[3] if len(caps) >= 4 else 0, page_count - 1)
-                    raw = pack_projects_page(page, page_count, items[page * 3:page * 3 + 3])
+                    page_items = items[page * 3:page * 3 + 3]
+                    kind = MSG_TYPE_VOICE_MESSAGES if voice_enabled else MSG_TYPE_PROJECTS
+                    if voice_enabled:
+                        voice.allow_targets(page_items)
+                        raw = pack_voice_messages(page, page_count, page_items)
+                    else:
+                        raw = pack_projects_page(page, page_count, page_items)
                     if raw != last_projects:
-                        while not ack_queue.empty():
-                            ack_queue.get_nowait()
-                        for frame in create_frames(MSG_TYPE_PROJECTS, raw):
-                            await client.write_gatt_char(PASSPORT_CHR_RX_UUID, frame, response=True)
                         try:
-                            ack = await asyncio.wait_for(ack_queue.get(), timeout=3)
-                            if ack != bytes([MSG_TYPE_PROJECTS, 0]):
-                                raise RuntimeError("Projects rejected by device")
+                            await send_payload(kind, raw, True)
                         except asyncio.TimeoutError as exc:
                             raise RuntimeError("Projects ACK missing; update firmware") from exc
                         last_projects = raw
@@ -366,19 +422,12 @@ class PassportAssistant:
                 alert = alerts.update(items, not sync_error)
                 if alert and alerts_supported:
                     alert_sequence += 1
-                    while not ack_queue.empty():
-                        ack_queue.get_nowait()
-                    for frame in create_frames(MSG_TYPE_ALERT, struct.pack("<IB", alert_sequence, alert.alert_type)):
-                        await client.write_gatt_char(PASSPORT_CHR_RX_UUID, frame, response=True)
-                    ack = await asyncio.wait_for(ack_queue.get(), timeout=3)
-                    if ack != bytes([MSG_TYPE_ALERT, 0]):
-                        raise RuntimeError("Message alert rejected by device")
+                    await send_payload(MSG_TYPE_ALERT, struct.pack("<IB", alert_sequence, alert.alert_type), True)
                     print(f"[+] Message alert ACK (type={alert.alert_type})")
                 await client.write_gatt_char(PASSPORT_CHR_LIVE_UUID, serialize_realtime(status), response=True)
                 if analytics is not None and analytics.done():
                     for msg_type, raw in analytics.result().items():
-                        for frame in create_frames(msg_type, raw):
-                            await client.write_gatt_char(PASSPORT_CHR_RX_UUID, frame, response=True)
+                        await send_payload(msg_type, raw)
                     analytics = None
                     last_full = time.monotonic()
                     print("[+] Analytics sent.")
@@ -386,6 +435,10 @@ class PassportAssistant:
                     analytics = asyncio.create_task(asyncio.to_thread(self.prepare_sync_payloads))
                 await asyncio.sleep(2)
         finally:
+            if voice_worker is not None:
+                voice_worker.cancel()
+                await asyncio.gather(voice_worker, return_exceptions=True)
+                await voice.close()
             if analytics is not None:
                 await analytics
 
@@ -433,6 +486,7 @@ def main() -> int:
         help="Connect via BLE, sync on an interval, stream live events, and reconnect on drop",
     )
     parser.add_argument("--device", help="Specific BLE device MAC address / UUID")
+    parser.add_argument("--voice-device", help="Trusted Passport BLE address permitted to send voice replies")
     parser.add_argument(
         "--interval",
         type=float,
@@ -443,6 +497,8 @@ def main() -> int:
     args = parser.parse_args()
 
     assistant = PassportAssistant(args.config)
+    if args.voice_device:
+        assistant.profile["voice_device"] = args.voice_device
     if args.voice is not None:
         assistant.profile["voice_enabled"] = (args.voice == "on")
     if args.volume is not None:

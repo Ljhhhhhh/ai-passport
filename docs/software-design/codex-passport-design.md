@@ -122,16 +122,17 @@ Screen resolution: 240 × 320 px.
 ### 5.2 Pages
 1. **Home**: Name, last BLE sync time, issue date, today's tokens, and a bottom strip of lifetime / last 7 days / streak.
 2. **Quota**: Three Codex login accounts, each with 5-hour and weekly usage percent plus reset countdown, from local OpenCodex `/api/codex-auth/accounts`.
-3. **Activity heatmap**: 13 × 7 (91 days), five gold intensity levels, active-day and peak summary.
-4. **Directions**: Top 5 projects in the last 30 days with share bars.
-5. **QR** (overlay): GitHub homepage; toggled with `OK` from any page.
+3. **Messages**: Task cards with a highlighted voice-reply target.
+4. **Settings**: Alert enable and volume.
+5. **QR** (overlay): Homepage; toggled with `OK` on Home or Quota.
 
 Footprint topic payloads remain on BLE/NVS for host compatibility and are not shown on device.
 
 ### 5.3 Button Navigation
 - `UP`: Previous page (closes QR first if open).
 - `DOWN`: Next page (closes QR first if open).
-- `OK`: Toggle QR code view.
+- `OK`: Select the next message, change Settings volume, or toggle QR on Home/Quota.
+- Hold `OK` on a highlighted message to record. The complete UUID is copied with the message snapshot and frozen until the voice operation ends. See the [voice reply workflow](../../projects/codex-passport/README.md#voice-replies).
 - The backlight stays on while the Codex app has unread tasks. Open the corresponding tasks in Codex to clear unread status; device buttons do not mark them read. After the count reaches zero, 30 seconds idle turns the backlight off. Unknown unread state or BLE disconnection keeps it on. `OK` wakes it without toggling QR; `UP` and `DOWN` do not wake it.
 
 
@@ -167,7 +168,11 @@ CRC-16-CCITT (`0x1021`) covers header and payload.
 
 `0x0A` carries the app's global unread task count as a four-byte little-endian unsigned integer; `0xFFFFFFFF` means unknown. TX status byte 4 is `1` when this capability is supported. The host reads `electron-persisted-atom-state.unread-thread-ids-by-host-v1` in `.codex-global-state.json` and requires the device ACK before considering a changed count synchronized.
 
+Voice messages use `passport_voice_messages_page_t` to carry displayed cards and their full UUIDs atomically. `passport_voice.h` owns the recording limits, operations and result states. Audio is split into acknowledged blocks; each block uses the existing bounded frame format with an MTU-derived chunk size. The host and firmware reject invalid lengths, sequence changes and stale transaction IDs. Retried blocks are idempotent; confirmed text is submitted once and is never replayed after reconnection.
+
+`tools/passport_voice.py:VoiceHost` owns local ASR, reviewed text and submission state. `tools/codex_bridge.py:deliver` owns desktop task delivery. Temporary audio is not persisted in NVS or retained after transcription.
 ### 6.3 NVS Persistence
+
 Namespace: `codex_passport`.
 - Keys: `profile`, `stats`, `heatmap`, `footprints`, `directions`.
 - Restored automatically upon system boot.

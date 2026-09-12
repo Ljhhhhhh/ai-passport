@@ -196,7 +196,8 @@ class TranscriptWatcher:
         return {}
 
     def _prompt_title(self, text):
-        if not text or text.startswith("<send_user_message_question_reply>"):
+        if not text or text.lstrip().startswith(("<send_user_message_question_reply>",
+                                                 "<subagent_notification>")):
             return ""
         lines = []
         for line in text.splitlines():

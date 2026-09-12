@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import struct
+import uuid
 from pathlib import Path
 from functools import lru_cache
 from typing import Any, Dict, List, Tuple
@@ -21,6 +22,9 @@ MSG_TYPE_MESSAGES = 0x09
 MSG_TYPE_TASKS = 0x0A
 MSG_TYPE_SETTINGS = 0x0B
 MSG_TYPE_ALERT = 0x0C
+MSG_TYPE_VOICE_MESSAGES = 0x0D
+MSG_TYPE_VOICE = 0x0E
+MSG_TYPE_VOICE_RESULT = 0x0F
 
 @lru_cache(maxsize=1)
 def supported_chars():
@@ -59,6 +63,42 @@ def pack_projects_page(page_index: int, total_pages: int, items: List[Dict[str, 
     return header + bytes(item_bytes)
 
 pack_messages_page = pack_projects_page
+
+def pack_voice_messages(page_index, total_pages, items):
+    ids = b"".join(uuid.UUID(it['id']).bytes for it in items[:3])
+    return pack_projects_page(page_index, total_pages, items) + ids.ljust(48, b'\0')
+
+
+class FrameReceiver:
+    """Bounded reassembly; ACK frames are handled separately by the caller."""
+    def __init__(self):
+        self.buffer = bytearray()
+        self.next_seq = 0
+        self.total = 0
+        self.kind = 0
+
+    def feed(self, frame):
+        if len(frame) < 10:
+            raise ValueError('Short frame')
+        magic, version, kind, seq, total, size = struct.unpack('>2sBBBBH', frame[:8])
+        if (magic != b'PT' or version != 1 or not total or seq >= total or
+                size > 240 or len(frame) != size + 10 or
+                crc16_ccitt(frame[:-2]) != int.from_bytes(frame[-2:], 'big')):
+            raise ValueError('Invalid frame')
+        if seq == 0:
+            self.buffer.clear()
+            self.next_seq, self.total, self.kind = 0, total, kind
+        if seq != self.next_seq or total != self.total or kind != self.kind:
+            raise ValueError('Frame sequence mismatch')
+        if len(self.buffer) + size > 1024:
+            raise ValueError('Message too large')
+        self.buffer.extend(frame[8:-2])
+        self.next_seq += 1
+        if self.next_seq == total:
+            result = bytes(self.buffer)
+            self.next_seq = self.total = 0
+            return kind, result
+        return None
 
 def pack_tasks_page(project_name: str, items: List[Dict[str, Any]]) -> bytes:
     proj = project_name.encode('utf-8')[:31].decode('utf-8', errors='ignore').encode('utf-8')

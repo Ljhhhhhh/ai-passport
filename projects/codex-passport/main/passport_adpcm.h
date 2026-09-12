@@ -20,6 +20,9 @@ typedef struct {
 } passport_adpcm_header_t;
 
 void passport_adpcm_init(passport_adpcm_state_t *state, int16_t predictor, int step_index);
+/* Streaming IMA ADPCM: initialize once; pack the first sample in the low nibble.
+ * Voice starts at predictor=0, step_index=0, without a clip header. */
+uint8_t passport_adpcm_encode_nibble(passport_adpcm_state_t *state, int16_t sample);
 int16_t passport_adpcm_decode_nibble(passport_adpcm_state_t *state, uint8_t nibble);
 size_t passport_adpcm_decode_bytes(passport_adpcm_state_t *state, const uint8_t *src, size_t src_len,
                                    size_t nibble_index, int16_t *dst, size_t dst_samples);

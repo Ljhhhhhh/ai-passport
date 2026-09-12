@@ -29,6 +29,9 @@ typedef enum {
     MSG_TYPE_MESSAGES    = 0x09, // alias for task messages page
     MSG_TYPE_SETTINGS    = 0x0B, // settings (voice enable, volume)
     MSG_TYPE_ALERT       = 0x0C, // session-local uint32 event sequence
+    MSG_TYPE_VOICE_MESSAGES = 0x0D,
+    MSG_TYPE_VOICE       = 0x0E,
+    MSG_TYPE_VOICE_RESULT = 0x0F,
     MSG_TYPE_UNREAD      = 0x0A, // uint32 little-endian; UINT32_MAX means unknown
 } passport_msg_type_t;
 
@@ -142,6 +145,12 @@ typedef struct {
 
 typedef passport_message_item_t passport_project_item_t;
 typedef passport_messages_page_t passport_projects_page_t;
+
+// One atomic snapshot: titles and RFC UUID bytes must never be sent separately.
+typedef struct {
+    passport_messages_page_t messages;
+    uint8_t thread_ids[PASSPORT_MESSAGES_PER_PAGE][16];
+} passport_voice_messages_page_t;
 
 typedef struct {
     char short_id[16];

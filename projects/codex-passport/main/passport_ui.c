@@ -80,6 +80,16 @@ static uint8_t s_project_pages = 1;
 static int s_current_page = PAGE_PROFILE;
 static int s_prev_page_before_qr = PAGE_PROFILE;
 static bool s_qr_active = false;
+static passport_voice_messages_page_t s_voice_messages;
+static bool s_voice_targets_valid;
+static uint8_t s_selected_message;
+static bool s_prefer_last_message;
+static bool s_message_page_pending;
+static bool s_ble_connected;
+static uint8_t s_message_count;
+static uint8_t s_rendered_message_page;
+static lv_obj_t *s_voice_overlay, *s_voice_phase, *s_voice_body, *s_voice_scroll, *s_voice_hint;
+static void highlight_message(void);
 
 static void strip_obj(lv_obj_t *obj)
 {
@@ -747,14 +757,44 @@ void passport_ui_toggle_qr(void)
     if (s_qr_active) {
         s_qr_active = false;
         show_page(s_prev_page_before_qr);
-    } else if (s_current_page == PAGE_PROJECTS) {
-        s_project_page = (s_project_page + 1) % s_project_pages;
     } else {
         s_prev_page_before_qr = s_current_page;
         s_qr_active = true;
         show_page(PAGE_QR_CODE);
     }
     bsp_lvgl_unlock();
+}
+
+static bool move_message(int delta)
+{
+    if (s_qr_active || s_current_page != PAGE_MESSAGES || s_project_pages == 0) return false;
+    /* Consume repeats until the requested page arrives, including reverse presses. */
+    if (s_message_page_pending) return true;
+    int count = s_message_count;
+    int idx = (int)s_selected_message + delta;
+    if (idx >= 0 && idx < count) {
+        s_selected_message = (uint8_t)idx;
+        highlight_message();
+        return true;
+    }
+    if (!s_ble_connected) return false;
+    if (delta > 0) {
+        if (s_project_page + 1U >= s_project_pages) return false;
+        s_prefer_last_message = false;
+        s_selected_message = 0;
+        s_voice_targets_valid = false;
+        s_project_page++;
+        s_message_page_pending = true;
+        highlight_message();
+        return true;
+    }
+    if (s_project_page == 0) return false;
+    s_prefer_last_message = true;
+    s_voice_targets_valid = false;
+    s_project_page--;
+    s_message_page_pending = true;
+    highlight_message();
+    return true;
 }
 
 bool passport_ui_is_settings_page(void)
@@ -765,6 +805,16 @@ bool passport_ui_is_settings_page(void)
         bsp_lvgl_unlock();
     }
     return is_settings;
+}
+
+bool passport_ui_is_messages_page(void)
+{
+    bool is_messages = false;
+    if (bsp_lvgl_lock(pdMS_TO_TICKS(100))) {
+        is_messages = (!s_qr_active && s_current_page == PAGE_MESSAGES);
+        bsp_lvgl_unlock();
+    }
+    return is_messages;
 }
 
 void passport_ui_settings_next(void)
@@ -794,19 +844,36 @@ void passport_ui_settings_toggle(void)
     passport_settings_t cfg = { .voice_enabled = voice ? 1 : 0, .volume = vol };
     passport_storage_save_settings(&cfg);
     passport_ui_update_settings(&cfg);
-    if (voice && vol > 0) {
-        passport_alert_play_chime();
-    }
 }
 
 void passport_ui_next_item(void)
 {
-    passport_ui_next_page();
+    if (!bsp_lvgl_lock(pdMS_TO_TICKS(100))) return;
+    bool moved = move_message(1);
+    if (!moved) {
+        if (s_qr_active) {
+            s_qr_active = false;
+            show_page(s_prev_page_before_qr);
+        } else {
+            show_page((s_current_page + 1) % PAGE_CYCLE);
+        }
+    }
+    bsp_lvgl_unlock();
 }
 
 void passport_ui_prev_item(void)
 {
-    passport_ui_prev_page();
+    if (!bsp_lvgl_lock(pdMS_TO_TICKS(100))) return;
+    bool moved = move_message(-1);
+    if (!moved) {
+        if (s_qr_active) {
+            s_qr_active = false;
+            show_page(s_prev_page_before_qr);
+        } else {
+            show_page((s_current_page + PAGE_CYCLE - 1) % PAGE_CYCLE);
+        }
+    }
+    bsp_lvgl_unlock();
 }
 
 void passport_ui_update_profile(const passport_profile_t *profile)
@@ -992,6 +1059,16 @@ void passport_ui_set_ble_connected(bool connected)
     if (!bsp_lvgl_lock(pdMS_TO_TICKS(500))) {
         return;
     }
+    s_ble_connected = connected;
+    if (!connected) {
+        s_project_page = s_rendered_message_page;
+        s_message_page_pending = false;
+        s_prefer_last_message = false;
+        s_voice_targets_valid = false;
+        if (s_selected_message >= s_message_count)
+            s_selected_message = s_message_count ? s_message_count - 1 : 0;
+    }
+    highlight_message();
     if (s_lbl_ble) {
         lv_obj_set_style_text_color(s_lbl_ble, lv_color_hex(connected ? COL_GOLD : COL_IDLE), 0);
     }
@@ -1063,7 +1140,7 @@ static bool s_sync_error = false;
 static void create_page_projects(lv_obj_t *parent)
 {
     lv_obj_t *kicker = lv_label_create(parent);
-    lv_label_set_text(kicker, "MESSAGES  /  OK: NEXT");
+    lv_label_set_text(kicker, "MESSAGES / UP DOWN");
     style_kicker(kicker);
     lv_obj_align(kicker, LV_ALIGN_TOP_LEFT, 10, 8);
 
@@ -1071,6 +1148,8 @@ static void create_page_projects(lv_obj_t *parent)
     lv_label_set_text(s_lbl_proj_title, "Waiting for Mac sync");
     style_micro(s_lbl_proj_title);
     lv_obj_set_style_text_font(s_lbl_proj_title, &font_passport_16, 0);
+    lv_obj_set_width(s_lbl_proj_title, 214);
+    lv_label_set_long_mode(s_lbl_proj_title, LV_LABEL_LONG_DOT);
     lv_obj_align(s_lbl_proj_title, LV_ALIGN_TOP_LEFT, 10, 24);
 
     for (int i = 0; i < 3; i++) {
@@ -1112,14 +1191,17 @@ void passport_ui_set_sync_error(bool error)
     s_sync_error = error;
 }
 
-bool passport_ui_update_projects(const passport_projects_page_t *projects)
+static void render_projects_locked(const passport_projects_page_t *projects)
 {
-    if (!projects || !bsp_lvgl_lock(pdMS_TO_TICKS(500))) {
-        return false;
-    }
     atomic_store(&s_project_updated, true);
     s_project_pages = projects->total_pages ? projects->total_pages : 1;
     s_project_page = projects->page_index;
+    s_message_page_pending = false;
+    s_rendered_message_page = projects->page_index;
+    s_message_count = projects->count;
+    if (s_prefer_last_message || s_selected_message >= s_message_count)
+        s_selected_message = s_message_count ? s_message_count - 1 : 0;
+    s_prefer_last_message = false;
     for (int i = 0; i < 3; i++) {
         if (i < projects->count) {
             const passport_message_item_t *it = &projects->items[i];
@@ -1173,8 +1255,143 @@ bool passport_ui_update_projects(const passport_projects_page_t *projects)
         }
         if (s_lbl_msg_status[0]) lv_label_set_text(s_lbl_msg_status[0], "");
     }
+}
+
+static void highlight_message(void)
+{
+    for (int i = 0; i < PASSPORT_MESSAGES_PER_PAGE; ++i) {
+        if (s_box_proj[i]) {
+            bool selected = !s_message_page_pending && i == s_selected_message &&
+                            i < s_message_count;
+            lv_obj_set_style_border_width(s_box_proj[i], selected ? 2 : 1, 0);
+            lv_obj_set_style_bg_color(s_box_proj[i], lv_color_hex(selected ? 0x282315 : COL_STATUS), 0);
+        }
+    }
+    if (s_lbl_proj_title) {
+        if (s_message_page_pending)
+            lv_label_set_text_fmt(s_lbl_proj_title, "Loading page %u", s_project_page + 1);
+        else if (!s_ble_connected)
+            lv_label_set_text(s_lbl_proj_title, "Disconnected");
+        else if (s_sync_error)
+            lv_label_set_text(s_lbl_proj_title, "同步异常");
+        else
+            lv_label_set_text_fmt(s_lbl_proj_title, "%u/%u%s", s_project_page + 1,
+                                 s_project_pages, s_voice_targets_valid && s_message_count ? "  2xOK talk" : "");
+    }
+}
+
+static bool message_page_matches(const passport_messages_page_t *page)
+{
+    /* The host clamps an out-of-range request when messages disappear. */
+    uint8_t pages = page->total_pages ? page->total_pages : 1;
+    uint8_t expected = s_project_page < pages ? s_project_page : pages - 1;
+    return page->page_index == expected;
+}
+
+bool passport_ui_update_projects(const passport_projects_page_t *projects)
+{
+    if (!projects || !bsp_lvgl_lock(pdMS_TO_TICKS(500))) return false;
+    if (!message_page_matches(projects)) {
+        bsp_lvgl_unlock();
+        return true;
+    }
+    s_voice_targets_valid = false;
+    render_projects_locked(projects);
+    highlight_message();
     bsp_lvgl_unlock();
     return true;
+}
+
+bool passport_ui_update_voice_messages(const passport_voice_messages_page_t *snapshot)
+{
+    if (!snapshot || !bsp_lvgl_lock(pdMS_TO_TICKS(500))) return false;
+    if (!message_page_matches(&snapshot->messages)) {
+        bsp_lvgl_unlock();
+        return true;
+    }
+    uint8_t previous_id[16] = {0};
+    if (s_voice_targets_valid) memcpy(previous_id, s_voice_messages.thread_ids[s_selected_message], 16);
+    s_selected_message = 0;
+    for (int i = 0; i < snapshot->messages.count; ++i) {
+        if (!memcmp(previous_id, snapshot->thread_ids[i], 16)) s_selected_message = i;
+    }
+    if (snapshot->messages.count && s_selected_message >= snapshot->messages.count)
+        s_selected_message = snapshot->messages.count - 1;
+    s_voice_messages = *snapshot;
+    s_voice_targets_valid = s_ble_connected;
+    render_projects_locked(&snapshot->messages);
+    highlight_message();
+    bsp_lvgl_unlock();
+    return true;
+}
+
+bool passport_ui_voice_target(uint8_t thread_id[16], char title[64])
+{
+    if (!bsp_lvgl_lock(pdMS_TO_TICKS(100))) return false;
+    static const uint8_t empty[16] = {0};
+    bool valid = s_current_page == PAGE_MESSAGES && !s_qr_active && s_voice_targets_valid &&
+                 s_selected_message < s_voice_messages.messages.count &&
+                 memcmp(s_voice_messages.thread_ids[s_selected_message], empty, 16);
+    if (valid) {
+        memcpy(thread_id, s_voice_messages.thread_ids[s_selected_message], 16);
+        memcpy(title, s_voice_messages.messages.items[s_selected_message].title, 64);
+    }
+    bsp_lvgl_unlock();
+    return valid;
+}
+
+bool passport_ui_voice_show(const char *phase, const char *body, const char *hint)
+{
+    if (!bsp_lvgl_lock(500)) return false;
+    if (!s_voice_overlay) {
+        s_voice_overlay = lv_obj_create(lv_layer_top());
+        strip_obj(s_voice_overlay);
+        lv_obj_set_size(s_voice_overlay, 234, 286);
+        lv_obj_align(s_voice_overlay, LV_ALIGN_BOTTOM_MID, 0, -3);
+        lv_obj_set_style_bg_color(s_voice_overlay, lv_color_hex(COL_INK), 0);
+        s_voice_phase = lv_label_create(s_voice_overlay);
+        lv_obj_set_size(s_voice_phase, 214, 42);
+        lv_obj_set_pos(s_voice_phase, 10, 8);
+        lv_obj_set_style_text_font(s_voice_phase, &font_passport_16, 0);
+        lv_obj_set_style_text_color(s_voice_phase, lv_color_hex(COL_GOLD), 0);
+        s_voice_scroll = lv_obj_create(s_voice_overlay);
+        lv_obj_set_pos(s_voice_scroll, 6, 52);
+        lv_obj_set_size(s_voice_scroll, 222, 182);
+        lv_obj_set_style_pad_all(s_voice_scroll, 4, 0);
+        lv_obj_set_style_border_width(s_voice_scroll, 0, 0);
+        lv_obj_set_style_bg_color(s_voice_scroll, lv_color_hex(COL_STATUS), 0);
+        s_voice_body = lv_label_create(s_voice_scroll);
+        lv_obj_set_width(s_voice_body, 210);
+        lv_obj_set_style_text_font(s_voice_body, &font_passport_16, 0);
+        lv_obj_set_style_text_color(s_voice_body, lv_color_hex(COL_IVORY), 0);
+        s_voice_hint = lv_label_create(s_voice_overlay);
+        lv_obj_set_size(s_voice_hint, 214, 44);
+        lv_obj_set_pos(s_voice_hint, 10, 240);
+        lv_obj_set_style_text_font(s_voice_hint, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(s_voice_hint, lv_color_hex(COL_IVORY_DIM), 0);
+    }
+    lv_obj_remove_flag(s_voice_overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_voice_phase, phase ? phase : "");
+    lv_label_set_text(s_voice_body, body ? body : "");
+    lv_label_set_text(s_voice_hint, hint ? hint : "");
+    lv_obj_scroll_to_y(s_voice_scroll, 0, LV_ANIM_OFF);
+    bsp_lvgl_unlock();
+    return true;
+}
+
+bool passport_ui_voice_hide(void)
+{
+    if (!bsp_lvgl_lock(pdMS_TO_TICKS(500))) return false;
+    if (s_voice_overlay) lv_obj_add_flag(s_voice_overlay, LV_OBJ_FLAG_HIDDEN);
+    bsp_lvgl_unlock();
+    return true;
+}
+
+void passport_ui_voice_scroll(int direction)
+{
+    if (!bsp_lvgl_lock(pdMS_TO_TICKS(100))) return;
+    if (s_voice_scroll) lv_obj_scroll_by(s_voice_scroll, 0, direction > 0 ? -72 : 72, LV_ANIM_OFF);
+    bsp_lvgl_unlock();
 }
 
 bool passport_ui_update_messages(const passport_messages_page_t *messages)
@@ -1188,6 +1405,12 @@ void passport_ui_update_tasks(const passport_tasks_page_t *tasks)
 
 
 #else
+
+bool passport_ui_update_voice_messages(const passport_voice_messages_page_t *p) { (void)p; return false; }
+bool passport_ui_voice_target(uint8_t id[16], char title[64]) { (void)id; (void)title; return false; }
+bool passport_ui_voice_show(const char *p, const char *b, const char *h) { (void)p; (void)b; (void)h; return false; }
+bool passport_ui_voice_hide(void) { return true; }
+void passport_ui_voice_scroll(int direction) { (void)direction; }
 
 bool passport_ui_take_project_update(void) { return false; }
 void passport_ui_show_projects(void) {}
@@ -1213,6 +1436,7 @@ void passport_ui_set_ble_connected(bool connected) { (void)connected; }
 void passport_ui_update_battery(int percent, bool is_charging) { (void)percent; (void)is_charging; }
 void passport_ui_update_settings(const passport_settings_t *settings) { (void)settings; }
 bool passport_ui_is_settings_page(void) { return false; }
+bool passport_ui_is_messages_page(void) { return false; }
 void passport_ui_settings_next(void) {}
 void passport_ui_settings_prev(void) {}
 void passport_ui_settings_toggle(void) {}

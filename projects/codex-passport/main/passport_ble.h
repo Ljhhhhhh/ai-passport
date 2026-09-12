@@ -33,6 +33,8 @@ bool passport_ble_take_alert_type(uint8_t *out_type);
 
 // Send ACK packet to connected host
 esp_err_t passport_ble_send_ack(uint8_t ack_msg_type, uint8_t status);
+// Worker-only: fragment a bounded message using the negotiated ATT MTU.
+esp_err_t passport_ble_send_message(uint8_t msg_type, const void *payload, size_t length);
 
 #ifdef __cplusplus
 }
