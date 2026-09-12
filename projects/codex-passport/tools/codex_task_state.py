@@ -69,6 +69,7 @@ class TaskStateMachine:
         cwd: str = "",
         now: Optional[float] = None,
         request_id: Optional[str] = None,
+        error: Any = None,
     ) -> int:
         ts = now if now is not None else time.time()
         proj = project_name or (os.path.basename(cwd.rstrip("/")) if cwd else "default")
@@ -106,7 +107,7 @@ class TaskStateMachine:
                     new_state = TASK_STATE_RUNNING
                     pending_req = None
             elif event_type in ("task_complete", "stop"):
-                new_state = TASK_STATE_COMPLETED
+                new_state = TASK_STATE_ERROR if error else TASK_STATE_COMPLETED
             elif event_type in ("interrupt",):
                 new_state = TASK_STATE_INTERRUPTED
             elif event_type in ("error", "turn_aborted"):
@@ -248,8 +249,14 @@ class TranscriptWatcher:
                 if turn and turn != task.get("turn"):
                     return
                 pending = {k: v for k, v in task["pending"].items() if isinstance(v, set)} if event == "task_complete" else {}
-                task.update(state={"task_complete": "DONE", "turn_aborted": "STOP",
-                                   "turn_failed": "ERR"}[event], updated=stamp, pending=pending)
+                state = "DONE"
+                if event == "task_complete" and payload.get("error"):
+                    state = "ERR"
+                elif event == "turn_aborted":
+                    state = "STOP"
+                elif event == "turn_failed":
+                    state = "ERR"
+                task.update(state=state, updated=stamp, pending=pending)
         elif kind == "response_item" and payload.get("role") == "user":
             for content in payload.get("content", []):
                 text = content.get("text", "") if isinstance(content, dict) else ""

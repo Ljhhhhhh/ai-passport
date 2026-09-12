@@ -21,10 +21,10 @@ typedef enum {
     PAGE_QUOTA      = 1,
     PAGE_PROJECTS   = 2,
     PAGE_MESSAGES   = 2,
-    PAGE_QR_CODE    = 3,
-    PAGE_TASKS      = 4,
+    PAGE_SETTINGS   = 3,
+    PAGE_QR_CODE    = 4,
     PAGE_COUNT      = 5,
-    PAGE_CYCLE      = 3,
+    PAGE_CYCLE      = 4,
 } passport_page_t;
 
 esp_err_t passport_ui_init(void);
@@ -37,6 +37,10 @@ bool passport_ui_take_project_update(void);
 void passport_ui_show_projects(void);
 void passport_ui_next_item(void);
 void passport_ui_prev_item(void);
+bool passport_ui_is_settings_page(void);
+void passport_ui_settings_next(void);
+void passport_ui_settings_prev(void);
+void passport_ui_settings_toggle(void);
 
 void passport_ui_update_profile(const passport_profile_t *profile);
 void passport_ui_update_stats(const passport_stats_t *stats);
@@ -51,6 +55,7 @@ void passport_ui_set_sync_error(bool error);
 void passport_ui_update_tasks(const passport_tasks_page_t *tasks);
 void passport_ui_set_ble_connected(bool connected);
 void passport_ui_update_battery(int percent, bool is_charging);
+void passport_ui_update_settings(const passport_settings_t *settings);
 
 #ifdef __cplusplus
 }

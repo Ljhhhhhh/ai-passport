@@ -33,6 +33,8 @@ esp_err_t passport_storage_save_footprints(const passport_footprints_t *footprin
 esp_err_t passport_storage_save_directions(const passport_directions_t *directions);
 esp_err_t passport_storage_save_quota(const passport_quota_t *quota);
 esp_err_t passport_storage_load_quota(passport_quota_t *quota);
+esp_err_t passport_storage_save_settings(const passport_settings_t *settings);
+esp_err_t passport_storage_load_settings(passport_settings_t *settings);
 
 #ifdef __cplusplus
 }

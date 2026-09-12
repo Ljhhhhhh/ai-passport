@@ -7,19 +7,19 @@ import unittest
 
 class AudioTests(unittest.TestCase):
     def test_soft_envelope_and_write_failure(self):
-        main = Path(__file__).resolve().parents[1] / 'main'
+        main = Path(__file__).resolve().parents[1] / "main"
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / 'bsp_audio.h').write_text('''#include <stddef.h>
+            (root / "bsp_audio.h").write_text("""#include <stddef.h>
 #include <stdint.h>
 #define ESP_OK 0
 int bsp_audio_init(void);
 int bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t channels);
 void bsp_audio_set_volume(uint8_t volume);
 int bsp_audio_write(const void *pcm, size_t bytes);
-''')
-            (root / 'esp_log.h').write_text('#define ESP_LOGW(tag, ...) ((void)(tag))\n')
-            (root / 'check.c').write_text('''#include "passport_alert.h"
+""")
+            (root / "esp_log.h").write_text("#define ESP_LOGW(tag, ...) ((void)(tag))\n")
+            (root / "check.c").write_text("""#include "passport_alert.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -31,7 +31,7 @@ int bsp_audio_init(void) { return 0; }
 int bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t channels) {
     assert(hz == 16000 && bits == 16 && channels == 1); return 0;
 }
-void bsp_audio_set_volume(uint8_t volume) { assert(volume <= 60); }
+void bsp_audio_set_volume(uint8_t volume) { assert(volume <= 80); }
 int bsp_audio_write(const void *pcm, size_t bytes) {
     if (fail) return -1;
     const int16_t *p = pcm;
@@ -51,13 +51,16 @@ int main(void) {
     assert(samples[count-1] == 0);
     fail = 1; count = 0; passport_alert_play_chime(); assert(count == 0);
 }
-''')
-            binary = root / 'check'
-            subprocess.run(['cc', '-DESP_PLATFORM', '-Wall', '-Wextra', '-Werror',
-                            '-I' + str(root), '-I' + str(main), str(root / 'check.c'),
-                            str(main / 'passport_alert.c'), '-lm', '-o', str(binary)], check=True)
+""")
+            binary = root / "check"
+            subprocess.run(["cc", "-DESP_PLATFORM", "-DPASSPORT_AUDIO_HOST_TEST", "-Wall", "-Wextra", "-Werror",
+                            "-I" + str(root), "-I" + str(main), str(root / "check.c"),
+                            str(main / "passport_alert.c"),
+                            str(main / "passport_adpcm.c"),
+                            str(main / "passport_clips.c"),
+                            "-lm", "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

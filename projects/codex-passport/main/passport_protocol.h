@@ -27,6 +27,7 @@ typedef enum {
     MSG_TYPE_QUOTA       = 0x08,
     MSG_TYPE_PROJECTS    = 0x09,
     MSG_TYPE_MESSAGES    = 0x09, // alias for task messages page
+    MSG_TYPE_SETTINGS    = 0x0B, // settings (voice enable, volume)
     MSG_TYPE_ALERT       = 0x0C, // session-local uint32 event sequence
     MSG_TYPE_UNREAD      = 0x0A, // uint32 little-endian; UINT32_MAX means unknown
 } passport_msg_type_t;
@@ -161,6 +162,11 @@ typedef struct {
     uint8_t ack_msg_type;
     uint8_t status;  // 0 = OK, 1 = CRC_ERR, 2 = SEQ_ERR
 } passport_ack_t;
+
+typedef struct {
+    uint8_t voice_enabled; // 0 = disabled, 1 = enabled
+    uint8_t volume;        // 0..100
+} passport_settings_t;
 
 #pragma pack(pop)
 

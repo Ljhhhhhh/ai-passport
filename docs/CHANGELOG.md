@@ -5,6 +5,7 @@
 # Changelog
 
 ## Unreleased
+- Fixed the Codex Passport Settings page firmware build by reusing the existing card background color. The fourth page provides saved voice and volume controls.
 - Fixed Codex Passport missing and distorted glyphs with a bundled OFL font, continuous 4bpp packing, and UTF-8-safe field encoding. Message sounds now follow new actionable task events once, with silent initial/reconnect snapshots and no periodic reminders.
 - Fixed Codex Passport unread state tracking by reading `electron-thread-read-state-v1` (with fallback to legacy `unread-thread-ids-by-host-v1`) and mapping unread subagents to parent tasks, preventing completed unread tasks from being prematurely removed from the device message list.
 - Codex Passport quota page skips the duplicate OpenCodex `main` identity and shows the three pool accounts by alias.

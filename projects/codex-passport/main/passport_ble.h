@@ -29,6 +29,7 @@ esp_err_t passport_ble_init(void);
 bool passport_ble_is_connected(void);
 uint32_t passport_ble_unread_count(void);
 bool passport_ble_take_alert(void);
+bool passport_ble_take_alert_type(uint8_t *out_type);
 
 // Send ACK packet to connected host
 esp_err_t passport_ble_send_ack(uint8_t ack_msg_type, uint8_t status);

@@ -4,15 +4,25 @@
 #include "passport_storage.h"
 #include "passport_ui.h"
 #include "passport_alert.h"
+#include "passport_alert.h"
 #include <string.h>
 #include <stdatomic.h>
 
 static _Atomic bool s_alert_pending;
+static _Atomic uint8_t s_alert_type;
 static uint32_t s_alert_sequence;
+
+bool passport_ble_take_alert_type(uint8_t *out_type)
+{
+    if (!atomic_exchange(&s_alert_pending, false)) return false;
+    if (out_type) *out_type = atomic_load(&s_alert_type);
+    return true;
+}
 
 bool passport_ble_take_alert(void)
 {
-    return atomic_exchange(&s_alert_pending, false);
+    uint8_t dummy = 0;
+    return passport_ble_take_alert_type(&dummy);
 }
 
 static _Atomic uint32_t s_unread_count = UINT32_MAX;
@@ -101,6 +111,7 @@ static int passport_gap_event(struct ble_gap_event *event, void *arg)
         s_connected = false;
         atomic_store(&s_unread_count, UINT32_MAX);
         atomic_store(&s_alert_pending, false);
+        atomic_store(&s_alert_type, 0);
         s_alert_sequence = 0;
         passport_ui_set_ble_connected(false);
         passport_reassembler_reset(&s_reassembler);
@@ -151,10 +162,15 @@ static int gatt_chr_access_rx(uint16_t conn_handle, uint16_t attr_handle,
 
         switch (out_msg_type) {
         case MSG_TYPE_ALERT: {
-            if (out_payload_len != sizeof(uint32_t)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            if (out_payload_len < sizeof(uint32_t)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
             uint32_t sequence;
             memcpy(&sequence, out_payload, sizeof(sequence));
+            uint8_t alert_type = 0;
+            if (out_payload_len >= 5) {
+                alert_type = out_payload[4];
+            }
             if (passport_alert_accept(&s_alert_sequence, sequence)) {
+                atomic_store(&s_alert_type, alert_type);
                 atomic_store(&s_alert_pending, true);
             }
             passport_ble_send_ack(MSG_TYPE_ALERT, 0);
@@ -248,6 +264,18 @@ static int gatt_chr_access_rx(uint16_t conn_handle, uint16_t attr_handle,
                 passport_storage_save_quota(&q);
                 passport_ui_update_quota(&q);
                 passport_ble_send_ack(MSG_TYPE_QUOTA, 0);
+            }
+            break;
+
+        case MSG_TYPE_SETTINGS:
+            if (out_payload_len >= sizeof(passport_settings_t)) {
+                passport_settings_t cfg;
+                memcpy(&cfg, out_payload, sizeof(cfg));
+                passport_storage_save_settings(&cfg);
+                passport_alert_set_settings(cfg.voice_enabled != 0, cfg.volume);
+                passport_ui_update_settings(&cfg);
+                passport_ble_send_ack(MSG_TYPE_SETTINGS, 0);
+                ESP_LOGI(TAG, "Settings updated via BLE: voice=%u, volume=%u", cfg.voice_enabled, cfg.volume);
             }
             break;
 

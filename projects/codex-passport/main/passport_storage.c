@@ -267,6 +267,40 @@ esp_err_t passport_storage_load_quota(passport_quota_t *quota)
     return ESP_OK;
 }
 
+esp_err_t passport_storage_save_settings(const passport_settings_t *settings)
+{
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_set_blob(handle, "settings", settings, sizeof(*settings));
+    if (err == ESP_OK) nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t passport_storage_load_settings(passport_settings_t *settings)
+{
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    settings->voice_enabled = 1;
+    settings->volume = 80;
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+    size_t len = sizeof(*settings);
+    err = nvs_get_blob(handle, "settings", settings, &len);
+    nvs_close(handle);
+    if (err != ESP_OK) {
+        settings->voice_enabled = 1;
+        settings->volume = 80;
+    }
+    return ESP_OK;
+}
+
 #else
 
 // Host stub implementation for unit testing
@@ -276,6 +310,7 @@ static passport_heatmap_t s_host_heatmap;
 static passport_footprints_t s_host_footprints;
 static passport_directions_t s_host_directions;
 static passport_quota_t s_host_quota;
+static passport_settings_t s_host_settings;
 static bool s_host_initialized;
 
 static void init_host_defaults(void)
@@ -291,6 +326,8 @@ static void init_host_defaults(void)
     s_host_stats.week_tokens = 105209956UL;
     s_host_stats.streak_days = 2;
     s_host_quota.short_window_hours = 5;
+    s_host_settings.voice_enabled = 1;
+    s_host_settings.volume = 80;
 
     s_host_initialized = true;
 }
@@ -352,6 +389,19 @@ esp_err_t passport_storage_load_quota(passport_quota_t *q)
 {
     if (!s_host_initialized) init_host_defaults();
     if (q) *q = s_host_quota;
+    return 0;
+}
+
+esp_err_t passport_storage_save_settings(const passport_settings_t *s)
+{
+    if (s) s_host_settings = *s;
+    return 0;
+}
+
+esp_err_t passport_storage_load_settings(passport_settings_t *s)
+{
+    if (!s_host_initialized) init_host_defaults();
+    if (s) *s = s_host_settings;
     return 0;
 }
 

@@ -19,7 +19,7 @@ MSG_TYPE_QUOTA = 0x08
 MSG_TYPE_PROJECTS = 0x09
 MSG_TYPE_MESSAGES = 0x09
 MSG_TYPE_TASKS = 0x0A
-MSG_TYPE_ACTION_READ = 0x0B
+MSG_TYPE_SETTINGS = 0x0B
 MSG_TYPE_ALERT = 0x0C
 
 @lru_cache(maxsize=1)
@@ -77,6 +77,9 @@ def pack_tasks_page(project_name: str, items: List[Dict[str, Any]]) -> bytes:
         else:
             item_bytes += struct.pack('<16sBBH24s', b'', 0, 0, 0, b'')
     return header + bytes(item_bytes)
+
+def serialize_settings(voice_enabled: bool = True, volume: int = 80) -> bytes:
+    return struct.pack('<BB', 1 if voice_enabled else 0, max(0, min(100, int(volume))))
 
 def create_frames(msg_type: int, payload: bytes, max_chunk_len: int = 240) -> List[bytes]:
     if not 1 <= max_chunk_len <= 240 or len(payload) > 1024:

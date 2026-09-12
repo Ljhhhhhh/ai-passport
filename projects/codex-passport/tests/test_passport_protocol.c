@@ -194,6 +194,18 @@ static void test_storage_defaults(void)
     assert(s.today_tokens > 0);
     assert(s.streak_days >= 1);
 
+    passport_settings_t cfg;
+    assert(passport_storage_load_settings(&cfg) == 0);
+    assert(cfg.voice_enabled == 1);
+    assert(cfg.volume == 80);
+
+    cfg.voice_enabled = 0;
+    cfg.volume = 40;
+    assert(passport_storage_save_settings(&cfg) == 0);
+    assert(passport_storage_load_settings(&cfg) == 0);
+    assert(cfg.voice_enabled == 0);
+    assert(cfg.volume == 40);
+
     printf("[TEST] test_storage_defaults PASSED\n");
 }
 

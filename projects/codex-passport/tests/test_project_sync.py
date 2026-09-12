@@ -104,7 +104,12 @@ class ProjectSyncTests(unittest.TestCase):
             append("failed.jsonl", "event_msg", dict(type="task_started", turn_id="t1"))
             append("failed.jsonl", "event_msg", dict(type="turn_failed", turn_id="t1"))
 
-            # Task 4: waiting input -> should be included (status 1)
+            # Task 3b: failed via task_complete with error payload
+            append("failed_err.jsonl", "session_meta", dict(id="t_failed_err", cwd="/path/proj2", source="vscode"))
+            append("failed_err.jsonl", "event_msg", dict(type="task_started", turn_id="t1"))
+            append("failed_err.jsonl", "event_msg", dict(type="task_complete", turn_id="t1", error=dict(message="API error 422")))
+
+           # Task 4: waiting input -> should be included (status 1)
             append("wait.jsonl", "session_meta", dict(id="t_wait", cwd="/path/proj1", source="vscode"))
             append("wait.jsonl", "event_msg", dict(type="task_started", turn_id="t1"))
             append("wait.jsonl", "response_item", dict(type="function_call", name="functions.request_user_input_async", call_id="q1"))
@@ -139,6 +144,7 @@ class ProjectSyncTests(unittest.TestCase):
                 m_unread = next(m for m in msgs if m["id"] == "t_unread_done")
                 self.assertEqual(m_unread["title"], "Real Title")
                 self.assertEqual(msg_ids.get("t_failed"), 3)
+                self.assertEqual(msg_ids.get("t_failed_err"), 3)
                 self.assertEqual(msg_ids.get("t_wait"), 1)
                 self.assertEqual(msg_ids.get("t_running"), 4)
                 self.assertEqual(next(m for m in msgs if m["id"] == "t_running")["title"], "最新用户消息内容")

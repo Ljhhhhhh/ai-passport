@@ -5,6 +5,7 @@
 # Changelog
 
 ## Unreleased
+- 修复 Codex Passport 配置页固件编译失败，复用现有卡片背景色；第四页提供自动保存的语音开关和音量设置。
 - 修复 Codex Passport 缺字和笔画错位：内置 OFL 字体、连续 4bpp 位图及 UTF-8 安全截断。提示音按新的待处理任务事件播放一次，首次同步与重连静默，取消周期提醒。
 - 修复 Codex Passport 未读状态同步：读取当前 `electron-thread-read-state-v1`（保留兼容回退）并将未读子代理映射至主任务，防止已完成但 Codex 尚未已读的任务从设备消息列表中被提前移除。
 - Codex Passport 额度页去掉与账号池重复的 OpenCodex `main` 身份，按别名展示三个实际登录账号。

@@ -952,7 +952,7 @@ class RealtimeWatcher:
                 if self.turn_start_time == 0.0:
                     self.turn_start_time = now
             elif sub_type in ("task_complete", "item_completed"):
-                self.state = STATE_COMPLETED
+                self.state = STATE_ERROR if payload.get("error") else STATE_COMPLETED
                 self.last_event_time = now
             elif sub_type in ("error", "turn_aborted"):
                 self.state = STATE_ERROR

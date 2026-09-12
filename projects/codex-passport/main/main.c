@@ -17,6 +17,11 @@
 
 static const char *TAG = "codex-passport";
 static passport_idle_t s_idle;
+typedef struct {
+    bsp_btn_t btn;
+    bsp_btn_ev_t ev;
+} btn_msg_t;
+
 static QueueHandle_t s_buttons;
 
 static void apply_idle(passport_idle_act_t act)
@@ -33,8 +38,9 @@ static void apply_idle(passport_idle_act_t act)
 static void on_button_event(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
 {
     (void)user;
-    if (ev == BSP_BTN_CLICK && s_buttons) {
-        xQueueSend(s_buttons, &btn, 0);
+    if ((ev == BSP_BTN_CLICK || ev == BSP_BTN_LONG) && s_buttons) {
+        btn_msg_t msg = { .btn = btn, .ev = ev };
+        xQueueSend(s_buttons, &msg, 0);
     }
 }
 
@@ -43,8 +49,8 @@ static void ui_input_task(void *arg)
     (void)arg;
     TickType_t previous = xTaskGetTickCount();
     while (1) {
-        bsp_btn_t btn;
-        bool pressed = xQueueReceive(s_buttons, &btn, pdMS_TO_TICKS(250)) == pdTRUE;
+        btn_msg_t msg;
+        bool pressed = xQueueReceive(s_buttons, &msg, pdMS_TO_TICKS(250)) == pdTRUE;
         TickType_t now = xTaskGetTickCount();
         uint32_t dt = (now - previous) * portTICK_PERIOD_MS;
         uint32_t unread = passport_ble_unread_count();
@@ -61,12 +67,27 @@ static void ui_input_task(void *arg)
             }
         }
         if (!pressed) continue;
-        passport_idle_act_t act = passport_idle_on_button(&s_idle, btn == BSP_BTN_OK);
+        passport_idle_act_t act = passport_idle_on_button(&s_idle, msg.btn == BSP_BTN_OK);
         apply_idle(act);
         if (act != PASSPORT_IDLE_PASS) continue;
-        if (btn == BSP_BTN_UP) passport_ui_prev_item();
-        else if (btn == BSP_BTN_DOWN) passport_ui_next_item();
-        else if (btn == BSP_BTN_OK) passport_ui_toggle_qr();
+
+        if (msg.ev == BSP_BTN_LONG) {
+            if (msg.btn == BSP_BTN_OK) {
+                passport_ui_toggle_qr();
+            }
+        } else if (msg.ev == BSP_BTN_CLICK) {
+            if (msg.btn == BSP_BTN_UP) {
+                passport_ui_prev_item();
+            } else if (msg.btn == BSP_BTN_DOWN) {
+                passport_ui_next_item();
+            } else if (msg.btn == BSP_BTN_OK) {
+                if (passport_ui_is_settings_page()) {
+                    passport_ui_settings_toggle();
+                } else {
+                    passport_ui_toggle_qr();
+                }
+            }
+        }
     }
 }
 
@@ -74,9 +95,10 @@ static void alert_task(void *arg)
 {
     (void)arg;
     while (1) {
-        if (passport_ble_take_alert()) {
-            ESP_LOGI(TAG, "Playing new message chime");
-            passport_alert_play_chime();
+        uint8_t alert_type = 0;
+        if (passport_ble_take_alert_type(&alert_type)) {
+            ESP_LOGI(TAG, "Playing message alert type: %u", (unsigned)alert_type);
+            passport_alert_play((passport_alert_type_t)alert_type);
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -124,12 +146,12 @@ void app_main(void)
 
     ESP_ERROR_CHECK(passport_storage_init());
     ESP_ERROR_CHECK(passport_ui_init());
-    s_buttons = xQueueCreate(8, sizeof(bsp_btn_t));
+    s_buttons = xQueueCreate(8, sizeof(btn_msg_t));
     configASSERT(s_buttons);
     configASSERT(xTaskCreate(ui_input_task, "passport_input", 3072, NULL, 4, NULL) == pdPASS);
     ESP_ERROR_CHECK(bsp_button_init(on_button_event, NULL));
     ESP_ERROR_CHECK(passport_ble_init());
-    configASSERT(xTaskCreate(alert_task, "passport_audio", 3072, NULL, 3, NULL) == pdPASS);
+    configASSERT(xTaskCreate(alert_task, "passport_audio", 4096, NULL, 3, NULL) == pdPASS);
 
     xTaskCreate(battery_task, "battery_task", 3072, has_batt ? (void *)1 : NULL, 4, NULL);
 

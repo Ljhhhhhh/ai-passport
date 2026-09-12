@@ -1,6 +1,7 @@
 // passport_ui.c - Five-page LVGL UI for Codex Passport (240x320)
 #include "passport_ui.h"
 #include "passport_storage.h"
+#include "passport_alert.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdatomic.h>
@@ -66,6 +67,12 @@ static lv_obj_t *s_lbl_q_reset_w[PASSPORT_QUOTA_ACCOUNTS];
 
 static lv_obj_t *s_qr_widget = NULL;
 static lv_obj_t *s_lbl_qr_url = NULL;
+
+static lv_obj_t *s_box_cfg_voice = NULL;
+static lv_obj_t *s_lbl_cfg_voice_val = NULL;
+static lv_obj_t *s_box_cfg_vol = NULL;
+static lv_obj_t *s_lbl_cfg_vol_val = NULL;
+static lv_obj_t *s_bar_cfg_vol = NULL;
 
 static atomic_bool s_project_updated;
 static uint8_t s_project_page;
@@ -354,6 +361,79 @@ static void create_page_qr(lv_obj_t *parent)
     lv_obj_align(s_lbl_qr_url, LV_ALIGN_TOP_MID, 0, 210);
 }
 
+static void create_page_settings(lv_obj_t *parent)
+{
+    lv_obj_t *kicker = lv_label_create(parent);
+    lv_label_set_text(kicker, "SETTINGS");
+    style_kicker(kicker);
+    lv_obj_align(kicker, LV_ALIGN_TOP_LEFT, 12, 12);
+
+    lv_obj_t *tip = lv_label_create(parent);
+    lv_label_set_text(tip, "OK:切换开关/音量");
+    style_micro(tip);
+    lv_obj_set_style_text_font(tip, &font_passport_16, 0);
+    lv_obj_align(tip, LV_ALIGN_TOP_RIGHT, -12, 12);
+
+    // Option 1: Voice Alert Switch
+    s_box_cfg_voice = lv_obj_create(parent);
+    strip_obj(s_box_cfg_voice);
+    lv_obj_set_size(s_box_cfg_voice, 210, 68);
+    lv_obj_align(s_box_cfg_voice, LV_ALIGN_TOP_MID, 0, 42);
+    lv_obj_set_style_bg_color(s_box_cfg_voice, lv_color_hex(COL_STATUS), 0);
+    lv_obj_set_style_border_width(s_box_cfg_voice, 1, 0);
+    lv_obj_set_style_border_color(s_box_cfg_voice, lv_color_hex(COL_HAIR), 0);
+    lv_obj_set_style_pad_all(s_box_cfg_voice, 8, 0);
+
+    lv_obj_t *lbl_v_title = lv_label_create(s_box_cfg_voice);
+    lv_label_set_text(lbl_v_title, "语音播报");
+    lv_obj_set_style_text_color(lbl_v_title, lv_color_hex(COL_IVORY), 0);
+    lv_obj_set_style_text_font(lbl_v_title, &font_passport_16, 0);
+    lv_obj_align(lbl_v_title, LV_ALIGN_TOP_LEFT, 4, 4);
+
+    lv_obj_t *lbl_v_sub = lv_label_create(s_box_cfg_voice);
+    lv_label_set_text(lbl_v_sub, "完成/等待/失败提示音");
+    style_micro(lbl_v_sub);
+    lv_obj_set_style_text_font(lbl_v_sub, &font_passport_16, 0);
+    lv_obj_align(lbl_v_sub, LV_ALIGN_BOTTOM_LEFT, 4, -4);
+
+    s_lbl_cfg_voice_val = lv_label_create(s_box_cfg_voice);
+    lv_label_set_text(s_lbl_cfg_voice_val, "开启");
+    lv_obj_set_style_text_color(s_lbl_cfg_voice_val, lv_color_hex(COL_DONE), 0);
+    lv_obj_set_style_text_font(s_lbl_cfg_voice_val, &font_passport_16, 0);
+    lv_obj_align(s_lbl_cfg_voice_val, LV_ALIGN_RIGHT_MID, -8, 0);
+
+    // Option 2: Volume Setting
+    s_box_cfg_vol = lv_obj_create(parent);
+    strip_obj(s_box_cfg_vol);
+    lv_obj_set_size(s_box_cfg_vol, 210, 84);
+    lv_obj_align(s_box_cfg_vol, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_set_style_bg_color(s_box_cfg_vol, lv_color_hex(COL_STATUS), 0);
+    lv_obj_set_style_border_width(s_box_cfg_vol, 1, 0);
+    lv_obj_set_style_border_color(s_box_cfg_vol, lv_color_hex(COL_HAIR), 0);
+    lv_obj_set_style_pad_all(s_box_cfg_vol, 8, 0);
+
+    lv_obj_t *lbl_vol_title = lv_label_create(s_box_cfg_vol);
+    lv_label_set_text(lbl_vol_title, "播报音量");
+    lv_obj_set_style_text_color(lbl_vol_title, lv_color_hex(COL_IVORY), 0);
+    lv_obj_set_style_text_font(lbl_vol_title, &font_passport_16, 0);
+    lv_obj_align(lbl_vol_title, LV_ALIGN_TOP_LEFT, 4, 4);
+
+    s_lbl_cfg_vol_val = lv_label_create(s_box_cfg_vol);
+    lv_label_set_text(s_lbl_cfg_vol_val, "80%");
+    lv_obj_set_style_text_color(s_lbl_cfg_vol_val, lv_color_hex(COL_GOLD), 0);
+    lv_obj_set_style_text_font(s_lbl_cfg_vol_val, &lv_font_montserrat_14, 0);
+    lv_obj_align(s_lbl_cfg_vol_val, LV_ALIGN_TOP_RIGHT, -8, 4);
+
+    s_bar_cfg_vol = lv_bar_create(s_box_cfg_vol);
+    lv_obj_set_size(s_bar_cfg_vol, 190, 8);
+    lv_obj_align(s_bar_cfg_vol, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_bar_set_range(s_bar_cfg_vol, 0, 100);
+    lv_bar_set_value(s_bar_cfg_vol, 80, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_bar_cfg_vol, lv_color_hex(0x1B212D), 0);
+    lv_obj_set_style_bg_color(s_bar_cfg_vol, lv_color_hex(COL_GOLD), LV_PART_INDICATOR);
+    lv_obj_set_style_anim_time(s_bar_cfg_vol, 0, 0);
+}
+
 static void set_today_labels(uint64_t tokens)
 {
     char num[24];
@@ -564,6 +644,7 @@ esp_err_t passport_ui_init(void)
     create_page_quota(s_pages[PAGE_QUOTA]);
     create_page_qr(s_pages[PAGE_QR_CODE]);
     create_page_projects(s_pages[PAGE_PROJECTS]);
+    create_page_settings(s_pages[PAGE_SETTINGS]);
 
     s_pager = lv_obj_create(col);
     strip_obj(s_pager);
@@ -596,8 +677,13 @@ esp_err_t passport_ui_init(void)
     if (passport_storage_load_quota(&q) == ESP_OK) {
         passport_ui_update_quota(&q);
     }
+    passport_settings_t cfg;
+    if (passport_storage_load_settings(&cfg) == ESP_OK) {
+        passport_alert_set_settings(cfg.voice_enabled != 0, cfg.volume);
+        passport_ui_update_settings(&cfg);
+    }
 
-    ESP_LOGI(TAG, "Passport UI ready (3 pages + QR, Projects enabled).");
+    ESP_LOGI(TAG, "Passport UI ready (4 pages + QR, Settings enabled).");
     return ESP_OK;
 }
 
@@ -658,17 +744,59 @@ void passport_ui_toggle_qr(void)
     if (!bsp_lvgl_lock(pdMS_TO_TICKS(100))) {
         return;
     }
-    if (s_current_page == PAGE_PROJECTS) {
-        s_project_page = (s_project_page + 1) % s_project_pages;
-    } else if (s_qr_active) {
+    if (s_qr_active) {
         s_qr_active = false;
         show_page(s_prev_page_before_qr);
+    } else if (s_current_page == PAGE_PROJECTS) {
+        s_project_page = (s_project_page + 1) % s_project_pages;
     } else {
         s_prev_page_before_qr = s_current_page;
         s_qr_active = true;
         show_page(PAGE_QR_CODE);
     }
     bsp_lvgl_unlock();
+}
+
+bool passport_ui_is_settings_page(void)
+{
+    bool is_settings = false;
+    if (bsp_lvgl_lock(pdMS_TO_TICKS(100))) {
+        is_settings = (!s_qr_active && s_current_page == PAGE_SETTINGS);
+        bsp_lvgl_unlock();
+    }
+    return is_settings;
+}
+
+void passport_ui_settings_next(void)
+{
+}
+
+void passport_ui_settings_prev(void)
+{
+}
+
+void passport_ui_settings_toggle(void)
+{
+    bool voice = true;
+    uint8_t vol = 80;
+    passport_alert_get_settings(&voice, &vol);
+    // Cycle through: 80% (ON) -> 100% (ON) -> MUTED (OFF) -> 20% (ON) -> 40% (ON) -> 60% (ON) -> 80% (ON)
+    if (!voice || vol == 0) {
+        voice = true;
+        vol = 20;
+    } else if (vol >= 100) {
+        voice = false;
+        vol = 0;
+    } else {
+        vol += 20;
+    }
+    passport_alert_set_settings(voice, vol);
+    passport_settings_t cfg = { .voice_enabled = voice ? 1 : 0, .volume = vol };
+    passport_storage_save_settings(&cfg);
+    passport_ui_update_settings(&cfg);
+    if (voice && vol > 0) {
+        passport_alert_play_chime();
+    }
 }
 
 void passport_ui_next_item(void)
@@ -902,6 +1030,29 @@ void passport_ui_update_battery(int percent, bool is_charging)
     bsp_lvgl_unlock();
 }
 
+void passport_ui_update_settings(const passport_settings_t *settings)
+{
+    if (!settings) return;
+    if (!bsp_lvgl_lock(pdMS_TO_TICKS(500))) return;
+    if (s_lbl_cfg_voice_val) {
+        lv_label_set_text(s_lbl_cfg_voice_val, settings->voice_enabled ? "开启" : "静音");
+        lv_obj_set_style_text_color(s_lbl_cfg_voice_val, lv_color_hex(settings->voice_enabled ? COL_DONE : COL_MUTED), 0);
+    }
+    if (s_lbl_cfg_vol_val) {
+        if (settings->voice_enabled && settings->volume > 0) {
+            lv_label_set_text_fmt(s_lbl_cfg_vol_val, "%u%%", (unsigned)settings->volume);
+            lv_obj_set_style_text_color(s_lbl_cfg_vol_val, lv_color_hex(COL_GOLD), 0);
+        } else {
+            lv_label_set_text(s_lbl_cfg_vol_val, "静音");
+            lv_obj_set_style_text_color(s_lbl_cfg_vol_val, lv_color_hex(COL_MUTED), 0);
+        }
+    }
+    if (s_bar_cfg_vol) {
+        lv_bar_set_value(s_bar_cfg_vol, settings->voice_enabled ? settings->volume : 0, LV_ANIM_OFF);
+    }
+    bsp_lvgl_unlock();
+}
+
 static lv_obj_t *s_lbl_proj_title = NULL;
 static lv_obj_t *s_lbl_msg_title[3] = {NULL};
 static lv_obj_t *s_lbl_msg_proj[3] = {NULL};
@@ -1060,5 +1211,10 @@ void passport_ui_update_quota(const passport_quota_t *quota) { (void)quota; }
 void passport_ui_update_realtime(const passport_realtime_t *realtime) { (void)realtime; }
 void passport_ui_set_ble_connected(bool connected) { (void)connected; }
 void passport_ui_update_battery(int percent, bool is_charging) { (void)percent; (void)is_charging; }
+void passport_ui_update_settings(const passport_settings_t *settings) { (void)settings; }
+bool passport_ui_is_settings_page(void) { return false; }
+void passport_ui_settings_next(void) {}
+void passport_ui_settings_prev(void) {}
+void passport_ui_settings_toggle(void) {}
 
 #endif

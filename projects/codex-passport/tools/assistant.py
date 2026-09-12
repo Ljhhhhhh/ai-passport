@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from codex_task_state import TranscriptWatcher
 from codex_unread import unread_count, UNKNOWN_UNREAD
 from passport_protocol import encode_text, create_frames, crc16_ccitt, pack_projects_page, MSG_TYPE_PROJECTS, MSG_TYPE_ALERT
+from passport_protocol import serialize_settings
 
 from codex_collector import (
     STATE_IDLE,
@@ -51,6 +52,7 @@ MSG_TYPE_REALTIME = 0x06
 MSG_TYPE_ACK = 0x07
 MSG_TYPE_QUOTA = 0x08
 MSG_TYPE_UNREAD = 0x0A
+MSG_TYPE_SETTINGS = 0x0B
 
 # BLE UUIDs
 PASSPORT_SVC_UUID = "0000cd00-0000-1000-8000-00805f9b34fb"
@@ -213,21 +215,47 @@ def load_profile(custom_path: Optional[str] = None) -> Dict[str, str]:
     return dict(DEFAULT_PROFILE)
 
 
+class AlertResult:
+    def __init__(self, changed: bool, alert_type: int = 0):
+        self.changed = changed
+        self.alert_type = alert_type
+
+    def __bool__(self):
+        return self.changed
+
+    def __iter__(self):
+        return iter((self.changed, self.alert_type))
+
+
 class MessageAlerts:
-    """One chime per newly observed actionable task event; snapshots are silent."""
+    """One chime or voice alert per newly observed actionable task event; snapshots are silent."""
     def __init__(self):
         self.previous = None
 
     def update(self, items, valid=True):
         if not valid:
             self.previous = None
-            return False
+            return AlertResult(False, 0)
         current = {m["id"]: (m.get("event"), m["status"])
                    for m in items if m.get("id") and m["status"] in (1, 2, 3)}
         changed = self.previous is not None and any(
             self.previous.get(key) != event for key, event in current.items())
+        alert_type = 0
+        if changed:
+            for key, event in current.items():
+                if self.previous.get(key) != event:
+                    status = event[1]
+                    if status == 1:
+                        alert_type = 1  # WAIT
+                        break
+                    elif status == 3:
+                        alert_type = 3  # ERR
+                    elif status == 2 and alert_type == 0:
+                        alert_type = 2  # DONE
+            if alert_type == 0:
+                alert_type = 4  # NEW_MSG
         self.previous = current
-        return changed
+        return AlertResult(changed, alert_type)
 
 
 class PassportAssistant:
@@ -248,6 +276,10 @@ class PassportAssistant:
             MSG_TYPE_FOOTPRINTS: serialize_footprints(summary["footprints"]),
             MSG_TYPE_DIRECTIONS: serialize_directions(summary["directions"]),
             MSG_TYPE_QUOTA: serialize_quota(load_codex_account_quotas()),
+            MSG_TYPE_SETTINGS: serialize_settings(
+                self.profile.get("voice_enabled", True) if isinstance(self.profile.get("voice_enabled"), bool) else True,
+                int(self.profile.get("volume", 80))
+            ),
         }
 
     async def _push_payloads(self, client: Any, include_profile: bool) -> None:
@@ -331,16 +363,17 @@ class PassportAssistant:
                         last_projects = raw
                         print(f"[+] Projects ACK: page {page + 1}/{page_count}, "
                               f"projects={len(items)}, state={status['state_name']}")
-                if alerts.update(items, not sync_error) and alerts_supported:
+                alert = alerts.update(items, not sync_error)
+                if alert and alerts_supported:
                     alert_sequence += 1
                     while not ack_queue.empty():
                         ack_queue.get_nowait()
-                    for frame in create_frames(MSG_TYPE_ALERT, struct.pack("<I", alert_sequence)):
+                    for frame in create_frames(MSG_TYPE_ALERT, struct.pack("<IB", alert_sequence, alert.alert_type)):
                         await client.write_gatt_char(PASSPORT_CHR_RX_UUID, frame, response=True)
                     ack = await asyncio.wait_for(ack_queue.get(), timeout=3)
                     if ack != bytes([MSG_TYPE_ALERT, 0]):
                         raise RuntimeError("Message alert rejected by device")
-                    print("[+] Message alert ACK")
+                    print(f"[+] Message alert ACK (type={alert.alert_type})")
                 await client.write_gatt_char(PASSPORT_CHR_LIVE_UUID, serialize_realtime(status), response=True)
                 if analytics is not None and analytics.done():
                     for msg_type, raw in analytics.result().items():
@@ -392,6 +425,8 @@ class PassportAssistant:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Codex Passport Host Assistant")
     parser.add_argument("--config", help="Path to profile JSON configuration file")
+    parser.add_argument("--voice", choices=["on", "off"], help="Enable or disable voice alert playback")
+    parser.add_argument("--volume", type=int, help="Set alert playback volume (0..100)")
     parser.add_argument(
         "--sync",
         action="store_true",
@@ -408,6 +443,10 @@ def main() -> int:
     args = parser.parse_args()
 
     assistant = PassportAssistant(args.config)
+    if args.voice is not None:
+        assistant.profile["voice_enabled"] = (args.voice == "on")
+    if args.volume is not None:
+        assistant.profile["volume"] = max(0, min(100, args.volume))
 
     if args.test:
         print("[*] Running offline packaging test...")
